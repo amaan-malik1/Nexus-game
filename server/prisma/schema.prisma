@@ -1,0 +1,155 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  PLAYER
+}
+
+enum MissionType {
+  CIPHER
+  PROTOCOL
+  DATA_CORRUPTION
+  LOGIC_LOCK
+  INSIDER
+}
+
+enum TeamMissionStatus {
+  LOCKED
+  ACTIVE
+  COMPLETED
+}
+
+enum GameStatus {
+  NOT_STARTED
+  RUNNING
+  PAUSED
+  FINISHED
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  role      Role     @default(PLAYER)
+  teamId    String?
+  team      Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+}
+
+model Team {
+  id              String    @id @default(cuid())
+  name            String
+  code            String    @unique
+  score           Int       @default(100)
+  hintsUsed       Int       @default(0)
+  currentMission  Int       @default(1)
+  vaultUnlocked   Boolean   @default(false)
+  vaultUnlockedAt DateTime?
+  vaultAttempts   Int       @default(0)
+  createdAt       DateTime  @default(now())
+
+  users          User[]
+  teamMissions   TeamMission[]
+  activity       ActivityLog[]
+  fragments      TeamFragment[]
+}
+
+model Mission {
+  id           String      @id @default(cuid())
+  orderIndex   Int         @unique
+  title        String
+  type         MissionType
+  description  String
+  briefingText String
+  isActive     Boolean     @default(true)
+
+  challenges   Challenge[]
+  teamMissions TeamMission[]
+}
+
+model Challenge {
+  id              String  @id @default(cuid())
+  missionId       String
+  mission         Mission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  questionText    String
+  questionData    Json
+  answer          String?
+  fragmentValue   Int?
+  points          Int     @default(50)
+  hintText        String?
+  hintCost        Int     @default(10)
+  orderInMission  Int     @default(1)
+  isAlternate     Boolean @default(false)
+
+  fragments       TeamFragment[]
+
+  @@index([missionId, orderInMission])
+}
+
+model TeamMission {
+  id           String            @id @default(cuid())
+  teamId       String
+  team         Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  missionId    String
+  mission      Mission           @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  status       TeamMissionStatus @default(LOCKED)
+  startedAt    DateTime?
+  completedAt  DateTime?
+  hintUsed     Boolean           @default(false)
+  currentStep  Int               @default(1)
+  wrongAttempts Int              @default(0)
+
+  @@unique([teamId, missionId])
+}
+
+model TeamFragment {
+  id           String    @id @default(cuid())
+  teamId       String
+  team         Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  challengeId  String
+  challenge    Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  value        Int
+  missionOrder Int
+  createdAt    DateTime  @default(now())
+
+  @@unique([teamId, challengeId])
+  @@index([teamId, missionOrder])
+}
+
+model GameConfig {
+  id         String     @id @default("singleton")
+  gameName   String     @default("NEXUS")
+  totalTime  Int        @default(1800)
+  gameStatus GameStatus @default(NOT_STARTED)
+  startedAt  DateTime?
+  pausedAt   DateTime?
+  elapsedBeforePause Int @default(0)
+  masterKey  String     @default("")
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  teamId    String?
+  team      Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  action    String
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model TechTeamMember {
+  id        String   @id @default(cuid())
+  name      String
+  role      String
+  photoUrl  String?
+  bio       String?
+  order     Int      @default(0)
+}
