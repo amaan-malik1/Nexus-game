@@ -47,3 +47,4 @@ npm run dev            # http://localhost:5173
 ## Master key (default seed)
 
 `72941` — computed from fragment digits in mission order: 7, 2, 9, 4, 1. Admin can edit fragment values per challenge; the master key auto-recomputes.
+

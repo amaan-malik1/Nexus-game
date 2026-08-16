@@ -8,7 +8,7 @@ export type JwtPayload =
   | { role: "PLAYER"; teamId: string };
 
 export function signToken(payload: JwtPayload, opts: SignOptions = {}): string {
-  return jwt.sign(payload, SECRET, { expiresIn: TTL, ...opts });
+  return jwt.sign(payload, SECRET, { expiresIn: TTL as any, ...opts });
 }
 
 export function verifyToken(token: string): JwtPayload {

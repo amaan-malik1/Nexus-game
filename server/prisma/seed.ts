@@ -13,6 +13,16 @@ async function main() {
   // Wipe missions to keep seed idempotent
   await prisma.challenge.deleteMany({});
   await prisma.mission.deleteMany({});
+  await prisma.techTeamMember.deleteMany({});
+
+  // Tech team agent roster (edit callsigns/bios in admin)
+  const [crypto, protocol, archivist, locksmith, insider] = await Promise.all([
+    prisma.techTeamMember.create({ data: { name: "TBD", role: "Crypto Agent",     agentCallsign: "CRYPTO AGENT",     order: 1, bio: "Somewhere on the ground floor. Ask around for the cipher key." } }),
+    prisma.techTeamMember.create({ data: { name: "TBD", role: "Protocol Handler", agentCallsign: "PROTOCOL HANDLER", order: 2, bio: "Watches the corridor near the labs. Speaks in symbols." } }),
+    prisma.techTeamMember.create({ data: { name: "TBD", role: "Data Archivist",   agentCallsign: "DATA ARCHIVIST",   order: 3, bio: "Guards the archive terminal. Only shows the ledger to verified operatives." } }),
+    prisma.techTeamMember.create({ data: { name: "TBD", role: "Locksmith",        agentCallsign: "LOCKSMITH",        order: 4, bio: "Carries the combination in their head, never in writing." } }),
+    prisma.techTeamMember.create({ data: { name: "TBD", role: "The Insider",      agentCallsign: "THE INSIDER",      order: 5, bio: "Blends in with the crowd. Match every trait or they'll deny everything." } }),
+  ]);
 
   const m1 = await prisma.mission.create({
     data: {
@@ -22,6 +32,9 @@ async function main() {
       description: "Decode encrypted transmissions to locate your first contact.",
       briefingText:
         "> INCOMING TRANSMISSION\n> ENCRYPTION: CAESAR\n> DECODE TO PROCEED.",
+      agentClueText:
+        "Decoded message points to the CRYPTO AGENT. Find them in person. They will task you and hand over Fragment 1.",
+      agentMemberId: crypto.id,
     },
   });
   await prisma.challenge.createMany({
@@ -59,6 +72,9 @@ async function main() {
       description: "Symbols map to letters. Letters map to physical directions.",
       briefingText:
         "> AGENT ONLINE\n> LEGACY PROTOCOL DETECTED\n> TRANSLATE THE SYMBOL STREAM.",
+      agentClueText:
+        "The decoded route leads to the PROTOCOL HANDLER. Show them your decoded sequence and they will release Fragment 2.",
+      agentMemberId: protocol.id,
     },
   });
   await prisma.challenge.create({
@@ -87,6 +103,9 @@ async function main() {
       description: "One entry in the ledger is corrupted. Find it.",
       briefingText:
         "> DATA STREAM UNSTABLE\n> INTEGRITY CHECK REQUIRED\n> IDENTIFY THE ANOMALY.",
+      agentClueText:
+        "Report the corrupted line number to the DATA ARCHIVIST. They will confirm and release Fragment 3.",
+      agentMemberId: archivist.id,
     },
   });
   await prisma.challenge.create({
@@ -130,6 +149,9 @@ async function main() {
       description: "Deduce the 3-digit combination from the clues.",
       briefingText:
         "> VAULT SUBSYSTEM LOCKED\n> DEDUCE THE COMBINATION\n> LOGIC IS YOUR KEY.",
+      agentClueText:
+        "Bring the combination to the LOCKSMITH. Recite it correctly and they will hand over Fragment 4.",
+      agentMemberId: locksmith.id,
     },
   });
   await prisma.challenge.create({
@@ -163,6 +185,9 @@ async function main() {
         "A member of the Tech Team is the insider. Find them by matching ALL five traits.",
       briefingText:
         "> ONE OF THEM IS THE INSIDER\n> TALK TO THE TECH TEAM\n> ALL TRAITS MUST MATCH.",
+      agentClueText:
+        "The INSIDER matches every trait. Find them, verify all five, and they will hand over Fragment 5.",
+      agentMemberId: insider.id,
     },
   });
   await prisma.challenge.create({

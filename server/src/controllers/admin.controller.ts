@@ -7,6 +7,7 @@ import {
   generateTeamCode,
   recomputeMasterKey,
   ensureTeamMissions,
+  awardFragmentAndAdvance,
 } from "../services/game.service.js";
 import { qrPngBuffer, qrPngDataUrl, playUrlFor } from "../services/qr.service.js";
 
@@ -171,7 +172,7 @@ export async function createTeam(req: Request, res: Response) {
 }
 
 export async function deleteTeam(req: Request, res: Response) {
-  await prisma.team.delete({ where: { id: req.params.id } });
+  await prisma.team.delete({ where: { id: String(req.params.id) } });
   res.json({ ok: true });
 }
 
@@ -181,7 +182,7 @@ export async function adjustScore(req: Request, res: Response) {
   const parsed = adjustSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const team = await prisma.team.update({
-    where: { id: req.params.id },
+    where: { id: String(req.params.id) },
     data: { score: { increment: parsed.data.delta } },
   });
   await prisma.activityLog.create({
@@ -190,99 +191,41 @@ export async function adjustScore(req: Request, res: Response) {
   res.json(team);
 }
 
-export async function approveMission(req: Request, res: Response) {
-  const teamId = req.params.id;
+/**
+ * Staff verify — awards the fragment for the target mission and advances the team.
+ * Body may specify { missionOrder }; defaults to the team's current mission.
+ * Used as the fallback when a team can't type the digit (or for INSIDER-style missions
+ * where there's no phone puzzle at all).
+ */
+export async function verifyFragment(req: Request, res: Response) {
+  const teamId = String(req.params.id);
   const team = await prisma.team.findUnique({ where: { id: teamId } });
   if (!team) return res.status(404).json({ error: "Team not found" });
 
+  const targetOrder =
+    typeof req.body?.missionOrder === "number" ? req.body.missionOrder : team.currentMission;
+
   const mission = await prisma.mission.findFirst({
-    where: { orderIndex: team.currentMission, isActive: true },
-    include: { challenges: { orderBy: { orderInMission: "asc" } } },
+    where: { orderIndex: targetOrder, isActive: true },
   });
-  if (!mission) return res.status(400).json({ error: "Team has no active mission" });
+  if (!mission) return res.status(400).json({ error: `No active mission with order ${targetOrder}` });
 
-  const tm = await prisma.teamMission.findUnique({
-    where: { teamId_missionId: { teamId, missionId: mission.id } },
+  const result = await awardFragmentAndAdvance(teamId, mission.id);
+  await prisma.activityLog.create({
+    data: {
+      teamId,
+      action: "STAFF_VERIFY",
+      metadata: { missionOrder: mission.orderIndex, bonus: result.bonus },
+    },
   });
-  if (!tm) return res.status(400).json({ error: "Team mission row missing" });
-
-  const step = tm.currentStep;
-  const challenge = mission.challenges.find((c) => c.orderInMission === step);
-  if (!challenge) return res.status(400).json({ error: "No pending challenge step" });
-
-  // Reuse the completion path by calling into the same tx-safe flow.
-  const result = await prisma.$transaction(async (tx) => {
-    let bonus = 0;
-    if (challenge.fragmentValue !== null && challenge.fragmentValue !== undefined) {
-      const existing = await tx.teamFragment.findUnique({
-        where: { teamId_challengeId: { teamId, challengeId: challenge.id } },
-      });
-      if (!existing) {
-        await tx.teamFragment.create({
-          data: {
-            teamId,
-            challengeId: challenge.id,
-            value: challenge.fragmentValue,
-            missionOrder: mission.orderIndex,
-          },
-        });
-      }
-    }
-    const total = mission.challenges.length;
-    const isFinalStep = challenge.orderInMission >= total;
-    if (isFinalStep) {
-      const prior = await tx.teamMission.count({
-        where: { missionId: mission.id, status: "COMPLETED" },
-      });
-      if (prior === 0) bonus = 20;
-    }
-    await tx.team.update({
-      where: { id: teamId },
-      data: { score: { increment: challenge.points + bonus } },
-    });
-    if (isFinalStep) {
-      await tx.teamMission.update({
-        where: { teamId_missionId: { teamId, missionId: mission.id } },
-        data: { status: "COMPLETED", completedAt: new Date(), currentStep: total + 1 },
-      });
-      const next = await tx.mission.findFirst({
-        where: { isActive: true, orderIndex: { gt: mission.orderIndex, lt: 99 } },
-        orderBy: { orderIndex: "asc" },
-      });
-      if (next) {
-        await tx.team.update({ where: { id: teamId }, data: { currentMission: next.orderIndex } });
-        await tx.teamMission.upsert({
-          where: { teamId_missionId: { teamId, missionId: next.id } },
-          update: { status: "ACTIVE", startedAt: new Date() },
-          create: { teamId, missionId: next.id, status: "ACTIVE", startedAt: new Date() },
-        });
-      } else {
-        await tx.team.update({
-          where: { id: teamId },
-          data: { currentMission: mission.orderIndex + 1 },
-        });
-      }
-    } else {
-      await tx.teamMission.update({
-        where: { teamId_missionId: { teamId, missionId: mission.id } },
-        data: { currentStep: challenge.orderInMission + 1 },
-      });
-    }
-    await tx.activityLog.create({
-      data: {
-        teamId,
-        action: "MISSION_APPROVED",
-        metadata: { missionId: mission.id, challengeId: challenge.id, bonus },
-      },
-    });
-    return { pointsAwarded: challenge.points + bonus, bonus, missionCompleted: isFinalStep };
-  });
-
   res.json(result);
 }
 
+// Backward-compatible alias for the old /approve-mission route.
+export const approveMission = verifyFragment;
+
 export async function qrForTeam(req: Request, res: Response) {
-  const team = await prisma.team.findUnique({ where: { id: req.params.id } });
+  const team = await prisma.team.findUnique({ where: { id: String(req.params.id) } });
   if (!team) return res.status(404).json({ error: "Team not found" });
   const buf = await qrPngBuffer(team.code);
   res.setHeader("Content-Type", "image/png");
@@ -328,9 +271,45 @@ ${cards
 export async function listMissions(_req: Request, res: Response) {
   const missions = await prisma.mission.findMany({
     orderBy: { orderIndex: "asc" },
-    include: { challenges: { orderBy: { orderInMission: "asc" } } },
+    include: {
+      challenges: { orderBy: { orderInMission: "asc" } },
+      agent: true,
+    },
   });
   res.json(missions);
+}
+
+export async function listTechTeam(_req: Request, res: Response) {
+  const members = await prisma.techTeamMember.findMany({ orderBy: { order: "asc" } });
+  res.json(members);
+}
+
+const memberSchema = z.object({
+  name: z.string().min(1),
+  role: z.string().min(1),
+  agentCallsign: z.string().nullable().optional(),
+  bio: z.string().nullable().optional(),
+  photoUrl: z.string().nullable().optional(),
+  order: z.number().int().min(0).max(999).optional(),
+});
+
+export async function upsertTechMember(req: Request, res: Response) {
+  const parsed = memberSchema.partial().safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const id = String(req.params.id);
+  if (id) {
+    const m = await prisma.techTeamMember.update({ where: { id }, data: parsed.data });
+    return res.json(m);
+  }
+  const full = memberSchema.safeParse(req.body);
+  if (!full.success) return res.status(400).json({ error: full.error.flatten() });
+  const m = await prisma.techTeamMember.create({ data: full.data });
+  res.json(m);
+}
+
+export async function deleteTechMember(req: Request, res: Response) {
+  await prisma.techTeamMember.delete({ where: { id: String(req.params.id) } });
+  res.json({ ok: true });
 }
 
 const missionSchema = z.object({
@@ -340,6 +319,8 @@ const missionSchema = z.object({
   description: z.string().default(""),
   briefingText: z.string().default(""),
   isActive: z.boolean().optional(),
+  agentClueText: z.string().nullable().optional(),
+  agentMemberId: z.string().nullable().optional(),
 });
 
 export async function createMission(req: Request, res: Response) {
@@ -353,20 +334,20 @@ export async function createMission(req: Request, res: Response) {
 export async function updateMission(req: Request, res: Response) {
   const parsed = missionSchema.partial().safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const mission = await prisma.mission.update({ where: { id: req.params.id }, data: parsed.data });
+  const mission = await prisma.mission.update({ where: { id: String(req.params.id) }, data: parsed.data });
   await recomputeMasterKey();
   res.json(mission);
 }
 
 export async function deleteMission(req: Request, res: Response) {
-  await prisma.mission.delete({ where: { id: req.params.id } });
+  await prisma.mission.delete({ where: { id: String(req.params.id) } });
   await recomputeMasterKey();
   res.json({ ok: true });
 }
 
 const challengeSchema = z.object({
   questionText: z.string().min(1),
-  questionData: z.any(),
+  questionData: z.any().default({}),
   answer: z.string().nullable().optional(),
   fragmentValue: z.number().int().min(0).max(9).nullable().optional(),
   points: z.number().int().min(0).max(1000).optional(),
@@ -380,7 +361,7 @@ export async function addChallenge(req: Request, res: Response) {
   const parsed = challengeSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const ch = await prisma.challenge.create({
-    data: { ...parsed.data, missionId: req.params.id },
+    data: { ...parsed.data, questionData: parsed.data.questionData ?? {}, missionId: String(req.params.id) },
   });
   await recomputeMasterKey();
   res.json(ch);
@@ -389,13 +370,13 @@ export async function addChallenge(req: Request, res: Response) {
 export async function updateChallenge(req: Request, res: Response) {
   const parsed = challengeSchema.partial().safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const ch = await prisma.challenge.update({ where: { id: req.params.id }, data: parsed.data });
+  const ch = await prisma.challenge.update({ where: { id: String(req.params.id) }, data: parsed.data });
   await recomputeMasterKey();
   res.json(ch);
 }
 
 export async function deleteChallenge(req: Request, res: Response) {
-  await prisma.challenge.delete({ where: { id: req.params.id } });
+  await prisma.challenge.delete({ where: { id: String(req.params.id) } });
   await recomputeMasterKey();
   res.json({ ok: true });
 }

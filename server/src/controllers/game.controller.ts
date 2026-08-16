@@ -7,6 +7,7 @@ import {
   ensureTeamMissions,
   answerMatches,
   normalize,
+  awardFragmentAndAdvance,
 } from "../services/game.service.js";
 
 function teamIdOf(req: Request): string | null {
@@ -72,7 +73,10 @@ export async function currentMission(req: Request, res: Response) {
 
   const mission = await prisma.mission.findFirst({
     where: { orderIndex: team.currentMission, isActive: true },
-    include: { challenges: { orderBy: { orderInMission: "asc" } } },
+    include: {
+      challenges: { orderBy: { orderInMission: "asc" } },
+      agent: true,
+    },
   });
 
   if (!mission) {
@@ -86,8 +90,9 @@ export async function currentMission(req: Request, res: Response) {
   const step = tm?.currentStep ?? 1;
   const challenge = mission.challenges.find((c) => c.orderInMission === step) ??
     mission.challenges[0];
-
   if (!challenge) return res.json({ done: false, mission: null });
+
+  const awaitingFragment = tm?.status === "AWAITING_FRAGMENT";
 
   res.json({
     mission: {
@@ -98,8 +103,20 @@ export async function currentMission(req: Request, res: Response) {
       description: mission.description,
       briefingText: mission.briefingText,
       totalSteps: mission.challenges.length,
+      agentClueText: mission.agentClueText ?? null,
+      agent: mission.agent
+        ? {
+            id: mission.agent.id,
+            name: mission.agent.name,
+            role: mission.agent.role,
+            callsign: mission.agent.agentCallsign ?? mission.agent.role,
+            bio: mission.agent.bio ?? null,
+            photoUrl: mission.agent.photoUrl ?? null,
+          }
+        : null,
     },
     step,
+    awaitingFragment,
     challenge: {
       id: challenge.id,
       questionText: challenge.questionText,
@@ -114,6 +131,8 @@ export async function currentMission(req: Request, res: Response) {
       status: tm?.status ?? "LOCKED",
       hintUsed: tm?.hintUsed ?? false,
       wrongAttempts: tm?.wrongAttempts ?? 0,
+      fragmentAttempts: tm?.fragmentAttempts ?? 0,
+      puzzleSolvedAt: tm?.puzzleSolvedAt ?? null,
     },
   });
 }
@@ -123,6 +142,12 @@ const submitSchema = z.object({
   answer: z.string().min(1).max(200),
 });
 
+/**
+ * Phase A: validate puzzle answer.
+ * - Intermediate step correct → advance step, no fragment.
+ * - Final step correct → transition to AWAITING_FRAGMENT, return agent clue. NO fragment yet.
+ * - answer:null challenges (INSIDER) → rejected; use staff verify-fragment.
+ */
 export async function submitAnswer(req: Request, res: Response) {
   const teamId = teamIdOf(req);
   if (!teamId) return res.status(403).json({ error: "Player only" });
@@ -135,14 +160,20 @@ export async function submitAnswer(req: Request, res: Response) {
 
   const challenge = await prisma.challenge.findUnique({
     where: { id: parsed.data.challengeId },
-    include: { mission: true },
+    include: {
+      mission: {
+        include: {
+          challenges: { orderBy: { orderInMission: "asc" } },
+          agent: true,
+        },
+      },
+    },
   });
   if (!challenge) return res.status(404).json({ error: "Challenge not found" });
 
-  // Manual approval flow — INSIDER etc.
   if (challenge.answer === null) {
     return res.status(400).json({
-      error: "This challenge requires senior verification. Show your code to a Tech Team member.",
+      error: "This challenge has no phone puzzle. Find the assigned agent — they will verify you.",
       requiresManualApproval: true,
     });
   }
@@ -161,131 +192,138 @@ export async function submitAnswer(req: Request, res: Response) {
         metadata: { challengeId: challenge.id, submitted: normalize(parsed.data.answer) },
       },
     });
-    return res.status(200).json({ correct: false });
+    return res.json({ correct: false });
   }
 
-  const result = await completeChallenge(teamId, challenge.id);
-  res.json({ correct: true, ...result });
-}
+  // Correct answer path
+  const total = challenge.mission.challenges.length;
+  const isFinalStep = challenge.orderInMission >= total;
 
-async function completeChallenge(teamId: string, challengeId: string) {
-  return prisma.$transaction(async (tx) => {
-    const challenge = await tx.challenge.findUnique({
-      where: { id: challengeId },
-      include: {
-        mission: { include: { challenges: { orderBy: { orderInMission: "asc" } } } },
-      },
-    });
-    if (!challenge) throw new Error("Challenge gone");
-
-    const tm = await tx.teamMission.findUnique({
-      where: { teamId_missionId: { teamId, missionId: challenge.missionId } },
-    });
-    if (!tm) throw new Error("Team mission missing");
-
-    // idempotency: if this step is already past, no-op
-    if (challenge.orderInMission < tm.currentStep && tm.status === "COMPLETED") {
-      return { alreadyCompleted: true };
-    }
-
-    // award points
-    let bonus = 0;
-    // Award fragment
-    let fragmentValue: number | null = null;
-    if (challenge.fragmentValue !== null && challenge.fragmentValue !== undefined) {
-      fragmentValue = challenge.fragmentValue;
-      const existing = await tx.teamFragment.findUnique({
-        where: { teamId_challengeId: { teamId, challengeId: challenge.id } },
-      });
-      if (!existing) {
-        await tx.teamFragment.create({
-          data: {
-            teamId,
-            challengeId: challenge.id,
-            value: challenge.fragmentValue,
-            missionOrder: challenge.mission.orderIndex,
-          },
-        });
-      }
-    }
-
-    // Determine if this completes the whole mission
-    const total = challenge.mission.challenges.length;
-    const isFinalStep = challenge.orderInMission >= total;
-
-    // Bonus for first team to finish this mission
-    if (isFinalStep) {
-      const priorCompletions = await tx.teamMission.count({
-        where: { missionId: challenge.missionId, status: "COMPLETED" },
-      });
-      if (priorCompletions === 0) bonus = 20;
-    }
-
-    await tx.team.update({
-      where: { id: teamId },
-      data: { score: { increment: challenge.points + bonus } },
-    });
-
-    if (isFinalStep) {
-      await tx.teamMission.update({
-        where: { teamId_missionId: { teamId, missionId: challenge.missionId } },
-        data: {
-          status: "COMPLETED",
-          completedAt: new Date(),
-          currentStep: total + 1,
-        },
-      });
-      // Advance to next mission
-      const nextMission = await tx.mission.findFirst({
-        where: {
-          isActive: true,
-          orderIndex: { gt: challenge.mission.orderIndex, lt: 99 },
-        },
-        orderBy: { orderIndex: "asc" },
-      });
-      if (nextMission) {
-        await tx.team.update({
-          where: { id: teamId },
-          data: { currentMission: nextMission.orderIndex },
-        });
-        await tx.teamMission.upsert({
-          where: { teamId_missionId: { teamId, missionId: nextMission.id } },
-          update: { status: "ACTIVE", startedAt: new Date() },
-          create: {
-            teamId,
-            missionId: nextMission.id,
-            status: "ACTIVE",
-            startedAt: new Date(),
-          },
-        });
-      } else {
-        // No more missions — mark team ready for vault (currentMission stays; front-end shows vault)
-        await tx.team.update({
-          where: { id: teamId },
-          data: { currentMission: challenge.mission.orderIndex + 1 },
-        });
-      }
-      await tx.activityLog.create({
-        data: {
-          teamId,
-          action: "MISSION_COMPLETED",
-          metadata: { missionId: challenge.missionId, orderIndex: challenge.mission.orderIndex, bonus },
-        },
-      });
-    } else {
+  const result = await prisma.$transaction(async (tx) => {
+    if (!isFinalStep) {
       await tx.teamMission.update({
         where: { teamId_missionId: { teamId, missionId: challenge.missionId } },
         data: { currentStep: challenge.orderInMission + 1 },
       });
+      await tx.activityLog.create({
+        data: {
+          teamId,
+          action: "PUZZLE_STEP_SOLVED",
+          metadata: { challengeId: challenge.id, step: challenge.orderInMission },
+        },
+      });
+      return { advancedTo: challenge.orderInMission + 1, awaitingFragment: false as const };
     }
 
-    return {
-      pointsAwarded: challenge.points + bonus,
-      bonus,
-      fragmentValue,
-      missionCompleted: isFinalStep,
-    };
+    // Final step — award small step points, then go to AWAITING_FRAGMENT.
+    // Point value defers to the fragment-entry step; step points can be zero here
+    // if you want fragment-entry to carry the full mission reward. For simplicity we
+    // don't award challenge.points here — awardFragmentAndAdvance will award it
+    // when the fragment is entered.
+    await tx.teamMission.update({
+      where: { teamId_missionId: { teamId, missionId: challenge.missionId } },
+      data: {
+        status: "AWAITING_FRAGMENT",
+        puzzleSolvedAt: new Date(),
+        // keep currentStep on the fragment-bearing challenge so client can display it
+      },
+    });
+    await tx.activityLog.create({
+      data: {
+        teamId,
+        action: "PUZZLE_SOLVED",
+        metadata: { missionId: challenge.missionId, orderIndex: challenge.mission.orderIndex },
+      },
+    });
+    return { advancedTo: challenge.orderInMission, awaitingFragment: true as const };
   });
+
+  const responseBase: Record<string, unknown> = { correct: true, ...result };
+  if (result.awaitingFragment) {
+    responseBase.agent = challenge.mission.agent
+      ? {
+          id: challenge.mission.agent.id,
+          name: challenge.mission.agent.name,
+          role: challenge.mission.agent.role,
+          callsign: challenge.mission.agent.agentCallsign ?? challenge.mission.agent.role,
+          bio: challenge.mission.agent.bio ?? null,
+          photoUrl: challenge.mission.agent.photoUrl ?? null,
+        }
+      : null;
+    responseBase.agentClueText = challenge.mission.agentClueText ?? null;
+  }
+  res.json(responseBase);
+}
+
+const fragmentSchema = z.object({
+  digit: z.union([z.string(), z.number()]).transform((v) => String(v)),
+});
+
+/**
+ * Phase B: player types the digit received from the assigned Tech Team agent.
+ * Only accepted when the team's current mission is in AWAITING_FRAGMENT.
+ */
+export async function submitFragment(req: Request, res: Response) {
+  const teamId = teamIdOf(req);
+  if (!teamId) return res.status(403).json({ error: "Player only" });
+  const parsed = fragmentSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const cfg = await getConfig();
+  if (cfg.gameStatus !== "RUNNING")
+    return res.status(400).json({ error: "Game is not running" });
+
+  const digit = parsed.data.digit.trim();
+  if (!/^[0-9]$/.test(digit))
+    return res.status(400).json({ error: "Fragment must be a single digit 0-9" });
+
+  const team = await prisma.team.findUnique({ where: { id: teamId } });
+  if (!team) return res.status(404).json({ error: "Team not found" });
+
+  const mission = await prisma.mission.findFirst({
+    where: { orderIndex: team.currentMission, isActive: true },
+    include: { challenges: { orderBy: { orderInMission: "asc" } } },
+  });
+  if (!mission) return res.status(400).json({ error: "No active mission" });
+
+  const tm = await prisma.teamMission.findUnique({
+    where: { teamId_missionId: { teamId, missionId: mission.id } },
+  });
+  if (!tm) return res.status(400).json({ error: "Team mission row missing" });
+  if (tm.status !== "AWAITING_FRAGMENT")
+    return res.status(400).json({ error: "Solve the puzzle first before entering a fragment." });
+
+  const fragmentChallenge =
+    [...mission.challenges].reverse().find((c) => c.fragmentValue !== null && c.fragmentValue !== undefined) ??
+    mission.challenges[mission.challenges.length - 1];
+  if (!fragmentChallenge || fragmentChallenge.fragmentValue === null || fragmentChallenge.fragmentValue === undefined) {
+    return res.status(500).json({ error: "This mission has no fragment configured." });
+  }
+
+  const expected = String(fragmentChallenge.fragmentValue);
+  if (digit !== expected) {
+    await prisma.$transaction([
+      prisma.teamMission.update({
+        where: { teamId_missionId: { teamId, missionId: mission.id } },
+        data: { fragmentAttempts: { increment: 1 } },
+      }),
+      prisma.team.update({
+        where: { id: teamId },
+        data: { score: { decrement: 5 } },
+      }),
+      prisma.activityLog.create({
+        data: {
+          teamId,
+          action: "WRONG_FRAGMENT",
+          metadata: { missionOrder: mission.orderIndex, submitted: digit },
+        },
+      }),
+    ]);
+    return res.json({ correct: false });
+  }
+
+  const awarded = await awardFragmentAndAdvance(teamId, mission.id);
+  res.json({ correct: true, ...awarded });
 }
 
 export async function requestHint(req: Request, res: Response) {

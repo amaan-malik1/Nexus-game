@@ -5,6 +5,7 @@ import {
   teamState,
   currentMission,
   submitAnswer,
+  submitFragment,
   requestHint,
   listFragments,
   submitVault,
@@ -19,6 +20,7 @@ r.get("/leaderboard", publicLeaderboard);  // public
 r.get("/team", requirePlayer, teamState);
 r.get("/mission", requirePlayer, currentMission);
 r.post("/submit", requirePlayer, submitAnswer);
+r.post("/fragment", requirePlayer, submitFragment);
 r.post("/hint", requirePlayer, requestHint);
 r.get("/fragments", requirePlayer, listFragments);
 r.post("/vault", requirePlayer, submitVault);

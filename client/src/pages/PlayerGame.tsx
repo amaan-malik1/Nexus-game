@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
@@ -12,6 +12,15 @@ import { formatTime, cx } from "../lib/format";
 
 type GameStatus = "NOT_STARTED" | "RUNNING" | "PAUSED" | "FINISHED";
 
+type Agent = {
+  id: string;
+  name: string;
+  role: string;
+  callsign: string;
+  bio: string | null;
+  photoUrl: string | null;
+};
+
 type MissionResp =
   | { done: true; message: string }
   | {
@@ -24,8 +33,11 @@ type MissionResp =
         description: string;
         briefingText: string;
         totalSteps: number;
+        agentClueText: string | null;
+        agent: Agent | null;
       };
       step: number;
+      awaitingFragment: boolean;
       challenge: {
         id: string;
         questionText: string;
@@ -36,7 +48,13 @@ type MissionResp =
         orderInMission: number;
         requiresManualApproval: boolean;
       };
-      teamMission: { status: string; hintUsed: boolean; wrongAttempts: number };
+      teamMission: {
+        status: string;
+        hintUsed: boolean;
+        wrongAttempts: number;
+        fragmentAttempts: number;
+        puzzleSolvedAt: string | null;
+      };
     };
 
 export default function PlayerGame() {
@@ -46,7 +64,6 @@ export default function PlayerGame() {
   const [joining, setJoining] = useState(false);
   const [manualCode, setManualCode] = useState("");
 
-  // Auto-join if URL has ?team=CODE
   useEffect(() => {
     if (!isAuthed && codeFromUrl) {
       setJoining(true);
@@ -111,11 +128,15 @@ function PlayerGameInner({ team, onLogout }: { team: any; onLogout: () => void }
 
   const mission = usePolling<MissionResp>(
     () => api.get("/api/game/mission").then((r) => r.data),
-    5000,
+    4000,
     [teamState.data?.currentMission],
   );
 
-  const [fragmentBurst, setFragmentBurst] = useState<{ value: number; order: number } | null>(null);
+  const [reveal, setReveal] = useState<{ value: number; order: number } | null>(null);
+  // Local sub-phase inside AWAITING_FRAGMENT: "clue" first, then "entry".
+  const [clueSeenFor, setClueSeenFor] = useState<string | null>(null);
+  // Local briefing overlay lifecycle
+  const [briefingDoneFor, setBriefingDoneFor] = useState<string | null>(null);
 
   const gameStatus = status.data?.status ?? "NOT_STARTED";
   const remaining = status.data?.remaining ?? 0;
@@ -123,22 +144,40 @@ function PlayerGameInner({ team, onLogout }: { team: any; onLogout: () => void }
   const collectedCount = fragments.length;
   const vaultUnlocked = teamState.data?.vaultUnlocked ?? false;
 
-  // Screen dispatch
-  const screen: "waiting" | "mission" | "vault" | "success" =
+  const missionData = mission.data && !("done" in mission.data && mission.data.done) ? mission.data : null;
+  const missionId = missionData?.mission?.id ?? null;
+
+  // Reset briefing/clue local state when mission changes
+  useEffect(() => {
+    setClueSeenFor(null);
+  }, [missionId]);
+
+  // Screen dispatch — mutually exclusive
+  const screen:
+    | "waiting"
+    | "briefing"
+    | "challenge"
+    | "clue"
+    | "fragment"
+    | "vault"
+    | "success" =
     gameStatus === "NOT_STARTED"
       ? "waiting"
       : vaultUnlocked
       ? "success"
-      : mission.data && "done" in mission.data && mission.data.done
+      : !missionData || (mission.data && "done" in mission.data && mission.data.done)
       ? "vault"
-      : collectedCount >= 5 && (!mission.data || ("done" in mission.data && mission.data.done))
-      ? "vault"
-      : "mission";
+      : briefingDoneFor !== missionId
+      ? "briefing"
+      : missionData.awaitingFragment
+      ? clueSeenFor === missionId
+        ? "fragment"
+        : "clue"
+      : "challenge";
 
   return (
     <div className="min-h-[100dvh] nx-grid-bg text-nx-text">
       <Scanlines />
-      {/* Top bar */}
       <header className="sticky top-0 z-10 bg-nx-bg/85 backdrop-blur border-b border-nx-border">
         <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-between text-xs nx-mono">
           <div>
@@ -156,22 +195,48 @@ function PlayerGameInner({ team, onLogout }: { team: any; onLogout: () => void }
             </div>
           </div>
         </div>
+        <MissionProgress
+          currentOrder={teamState.data?.currentMission ?? 1}
+          completedCount={collectedCount}
+        />
       </header>
 
       <main className="max-w-md mx-auto px-4 py-6">
         {screen === "waiting" && <Waiting teamName={team?.name} />}
-        {screen === "mission" && (
-          <MissionScreen
-            key={`m-${(mission.data && "mission" in mission.data && mission.data.mission?.id) || "loading"}-${(mission.data && "step" in mission.data && mission.data.step) || 0}`}
-            data={mission.data as any}
-            gameStatus={gameStatus}
-            teamCode={team?.code}
+        {screen === "briefing" && missionData && (
+          <BriefingScreen
+            key={`b-${missionId}`}
+            mission={missionData.mission}
+            onDone={() => setBriefingDoneFor(missionId)}
+          />
+        )}
+        {screen === "challenge" && missionData && (
+          <ChallengeScreen
+            key={`c-${missionData.challenge.id}-${missionData.step}`}
+            data={missionData}
             hintsUsed={teamState.data?.hintsUsed ?? 0}
-            onSolved={(fragmentValue, missionOrder) => {
-              if (fragmentValue !== null && fragmentValue !== undefined) {
-                setFragmentBurst({ value: fragmentValue, order: missionOrder });
-                setTimeout(() => setFragmentBurst(null), 2600);
-              }
+            onSolved={() => {
+              teamState.refresh();
+              mission.refresh();
+              // The mission poll will move status → AWAITING_FRAGMENT
+              // clue screen will show automatically.
+            }}
+          />
+        )}
+        {screen === "clue" && missionData && (
+          <ClueScreen
+            key={`k-${missionId}`}
+            mission={missionData.mission}
+            onProceed={() => setClueSeenFor(missionId)}
+          />
+        )}
+        {screen === "fragment" && missionData && (
+          <FragmentEntryScreen
+            key={`f-${missionId}`}
+            mission={missionData.mission}
+            onCorrect={(value, order) => {
+              setReveal({ value, order });
+              setTimeout(() => setReveal(null), 2800);
               teamState.refresh();
               mission.refresh();
             }}
@@ -200,13 +265,10 @@ function PlayerGameInner({ team, onLogout }: { team: any; onLogout: () => void }
         </div>
       </main>
 
-      {/* Fragment reveal overlay */}
       <AnimatePresence>
-        {fragmentBurst && (
+        {reveal && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-[9997] bg-black/85 grid place-items-center"
           >
             <motion.div
@@ -220,10 +282,10 @@ function PlayerGameInner({ team, onLogout }: { team: any; onLogout: () => void }
                 FRAGMENT ACQUIRED
               </div>
               <div className="nx-fragment nx-pulse" style={{ width: 160, height: 200, fontSize: 96 }}>
-                {fragmentBurst.value}
+                {reveal.value}
               </div>
               <div className="text-nx-muted text-xs mt-3 nx-mono">
-                MISSION {fragmentBurst.order} / 5
+                MISSION {reveal.order} / 5
               </div>
             </motion.div>
           </motion.div>
@@ -233,7 +295,30 @@ function PlayerGameInner({ team, onLogout }: { team: any; onLogout: () => void }
   );
 }
 
-// -------- Waiting screen --------
+// ---------- Progress ----------
+function MissionProgress({
+  currentOrder, completedCount,
+}: { currentOrder: number; completedCount: number }) {
+  return (
+    <div className="max-w-md mx-auto px-4 pb-3 flex items-center gap-2">
+      {[1, 2, 3, 4, 5].map((i) => {
+        const done = i <= completedCount;
+        const active = i === currentOrder && !done;
+        return (
+          <div
+            key={i}
+            className={cx(
+              "flex-1 h-1.5 rounded transition-all",
+              done ? "bg-nx-green" : active ? "bg-nx-cyan nx-pulse" : "bg-nx-border",
+            )}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------- Waiting ----------
 function Waiting({ teamName }: { teamName?: string }) {
   return (
     <motion.div
@@ -252,72 +337,57 @@ function Waiting({ teamName }: { teamName?: string }) {
   );
 }
 
-// -------- Mission screen dispatch --------
-function MissionScreen({
-  data,
-  gameStatus,
-  teamCode,
-  hintsUsed,
-  onSolved,
+// ---------- Briefing (auto-advances) ----------
+function BriefingScreen({
+  mission, onDone,
 }: {
-  data: any;
-  gameStatus: GameStatus;
-  teamCode: string;
+  mission: NonNullable<Extract<MissionResp, { done?: false }>["mission"]>;
+  onDone: () => void;
+}) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 2400);
+    return () => clearTimeout(t);
+  }, [onDone]);
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="pt-8">
+      <div className="text-center text-nx-muted nx-mono text-xs mb-2">
+        MISSION {mission.orderIndex} OF 5
+      </div>
+      <GlitchLabel className="block text-center text-2xl">{mission.title}</GlitchLabel>
+      <div className="nx-card nx-card-cyan p-4 mt-6 nx-mono text-sm text-nx-cyan">
+        <GlitchText text={mission.briefingText} speed={30} />
+      </div>
+    </motion.div>
+  );
+}
+
+// ---------- Challenge (Phase A — puzzle) ----------
+function ChallengeScreen({
+  data, hintsUsed, onSolved,
+}: {
+  data: Extract<MissionResp, { done?: false }>;
   hintsUsed: number;
-  onSolved: (fragmentValue: number | null, missionOrder: number) => void;
+  onSolved: () => void;
 }) {
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [shake, setShake] = useState(0);
-  const [feedback, setFeedback] = useState<"idle" | "ok" | "bad">("idle");
-  const initialHint = data && !data.done ? data.challenge?.hintText ?? null : null;
-  const [showHint, setShowHint] = useState<string | null>(initialHint);
-  const [briefingDone, setBriefingDone] = useState(false);
+  const [showHint, setShowHint] = useState<string | null>(data.challenge.hintText);
 
-  const challengeId = data && !data.done ? data.challenge?.id : null;
-  const missionId = data && !data.done ? data.mission?.id : null;
-
-  useEffect(() => {
-    if (challengeId) setShowHint(initialHint);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [challengeId]);
-
-  useEffect(() => {
-    if (!missionId) return;
-    setBriefingDone(false);
-    const t = setTimeout(() => setBriefingDone(true), 2200);
-    return () => clearTimeout(t);
-  }, [missionId]);
-
-  if (!data) return <div className="text-center text-nx-muted nx-mono">…</div>;
-  if (data.done) return <div className="text-center text-nx-muted nx-mono">All missions complete.</div>;
-  if (gameStatus !== "RUNNING") {
-    return (
-      <div className="text-center pt-12">
-        <GlitchLabel className="text-xl">
-          {gameStatus === "PAUSED" ? "SYSTEM PAUSED" : "GAME " + gameStatus}
-        </GlitchLabel>
-        <div className="text-nx-muted nx-mono text-xs mt-3">Standby.</div>
-      </div>
-    );
-  }
+  useEffect(() => setShowHint(data.challenge.hintText), [data.challenge.id, data.challenge.hintText]);
 
   const submit = async () => {
-    if (!answer.trim()) return;
+    if (!answer.trim() && !data.challenge.requiresManualApproval) return;
     setBusy(true);
     try {
       const { data: r } = await api.post("/api/game/submit", {
         challengeId: data.challenge.id, answer,
       });
       if (r.correct) {
-        setFeedback("ok");
         setAnswer("");
-        onSolved(r.fragmentValue ?? null, data.mission.orderIndex);
-        setTimeout(() => setFeedback("idle"), 800);
+        onSolved();
       } else {
-        setFeedback("bad");
         setShake((n) => n + 1);
-        setTimeout(() => setFeedback("idle"), 800);
       }
     } catch (e: any) {
       toast(e.response?.data?.error || "Error", "error");
@@ -336,29 +406,8 @@ function MissionScreen({
     }
   };
 
-  if (!briefingDone) {
-    return (
-      <motion.div
-        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        className="pt-8"
-      >
-        <div className="text-center text-nx-muted nx-mono text-xs mb-2">
-          MISSION {data.mission.orderIndex} OF 5
-        </div>
-        <GlitchLabel className="block text-center text-2xl">{data.mission.title}</GlitchLabel>
-        <div className="nx-card nx-card-cyan p-4 mt-6 nx-mono text-sm text-nx-cyan">
-          <GlitchText text={data.mission.briefingText} speed={30} />
-        </div>
-      </motion.div>
-    );
-  }
-
   return (
-    <motion.div
-      key={data.challenge.id}
-      initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -30 }}
-      className="pt-2"
-    >
+    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="pt-2">
       <div className="text-center text-nx-muted nx-mono text-xs">
         MISSION {data.mission.orderIndex} / 5 · STEP {data.step} / {data.mission.totalSteps}
       </div>
@@ -366,24 +415,25 @@ function MissionScreen({
 
       <div className="nx-card p-4 mt-4">
         <div className="text-nx-text nx-mono text-sm mb-3">{data.challenge.questionText}</div>
-        <ChallengeBody
-          type={data.mission.type}
-          questionData={data.challenge.questionData}
-        />
+        <ChallengeBody type={data.mission.type} questionData={data.challenge.questionData} />
       </div>
 
       {data.challenge.requiresManualApproval ? (
-        <InsiderPanel teamCode={teamCode} hint={showHint} onHint={hintsUsed < 2 ? requestHint : undefined} />
+        <div className="nx-card mt-4 p-4 text-center">
+          <div className="text-nx-muted nx-mono text-xs mb-2">STAFF VERIFICATION REQUIRED</div>
+          <div className="nx-mono text-sm">
+            This challenge has no phone puzzle. Find the assigned agent — they will verify you and unlock the fragment.
+          </div>
+        </div>
       ) : (
         <>
-          <motion.div key={shake} animate={{ x: feedback === "bad" ? [-8, 8, -6, 6, -3, 3, 0] : 0 }} transition={{ duration: 0.4 }} className="mt-4">
+          <motion.div key={shake} animate={{ x: shake ? [-8, 8, -6, 6, -3, 3, 0] : 0 }} transition={{ duration: 0.4 }} className="mt-4">
             <AnswerInput
               type={data.mission.type}
               value={answer}
               onChange={setAnswer}
               onSubmit={submit}
               disabled={busy}
-              feedback={feedback}
             />
           </motion.div>
           <div className="mt-3 flex gap-2">
@@ -397,7 +447,7 @@ function MissionScreen({
             )}
           </div>
           {showHint && (
-            <div className="nx-card mt-3 p-3 border-nx-yellow" style={{ borderColor: "#ffaa00" }}>
+            <div className="nx-card mt-3 p-3" style={{ borderColor: "#ffaa00" }}>
               <div className="text-nx-yellow nx-mono text-xs mb-1">HINT</div>
               <div className="nx-mono text-sm">{showHint}</div>
             </div>
@@ -408,7 +458,121 @@ function MissionScreen({
   );
 }
 
-// -------- Challenge type renderers --------
+// ---------- Clue (post-puzzle "find the agent") ----------
+function ClueScreen({
+  mission, onProceed,
+}: {
+  mission: NonNullable<Extract<MissionResp, { done?: false }>["mission"]>;
+  onProceed: () => void;
+}) {
+  const agent = mission.agent;
+  return (
+    <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="pt-4">
+      <div className="text-center text-nx-green nx-mono text-xs tracking-widest mb-2">✓ PUZZLE DECODED</div>
+      <GlitchLabel color="green" className="block text-center text-xl mb-6">TARGET IDENTIFIED</GlitchLabel>
+
+      <div className="nx-card nx-card-cyan p-6 text-center">
+        {agent?.photoUrl && (
+          <img src={agent.photoUrl} alt={agent.callsign} className="w-24 h-24 rounded-full mx-auto mb-3 border-2 border-nx-cyan object-cover" />
+        )}
+        <div className="text-nx-muted nx-mono text-xs mb-1">CALLSIGN</div>
+        <div className="nx-display text-2xl text-nx-cyan nx-glow-cyan tracking-widest">
+          {agent?.callsign ?? "TBD"}
+        </div>
+        {agent?.role && agent.role !== agent.callsign && (
+          <div className="text-nx-muted nx-mono text-xs mt-1">{agent.role}</div>
+        )}
+        {(agent?.bio || mission.agentClueText) && (
+          <div className="mt-4 nx-mono text-sm text-nx-text/90 whitespace-pre-line">
+            {mission.agentClueText ?? agent?.bio}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-6 nx-card p-3 text-center">
+        <div className="text-nx-yellow nx-mono text-xs">
+          They will task you and hand over a single digit — your fragment for this mission.
+        </div>
+      </div>
+
+      <button className="nx-btn nx-btn-solid w-full mt-6" onClick={onProceed}>
+        I found them
+      </button>
+    </motion.div>
+  );
+}
+
+// ---------- Fragment Entry (Phase B) ----------
+function FragmentEntryScreen({
+  mission, onCorrect,
+}: {
+  mission: NonNullable<Extract<MissionResp, { done?: false }>["mission"]>;
+  onCorrect: (value: number, order: number) => void;
+}) {
+  const [digit, setDigit] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [shake, setShake] = useState(0);
+
+  const submit = async () => {
+    if (!/^[0-9]$/.test(digit)) return;
+    setBusy(true);
+    try {
+      const { data } = await api.post("/api/game/fragment", { digit });
+      if (data.correct) {
+        onCorrect(data.fragmentValue, data.missionOrder);
+        setDigit("");
+      } else {
+        setShake((n) => n + 1);
+        toast("Wrong digit (-5 pts)", "error");
+      }
+    } catch (e: any) {
+      toast(e.response?.data?.error || "Error", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="pt-4">
+      <div className="text-center text-nx-muted nx-mono text-xs">MISSION {mission.orderIndex} / 5</div>
+      <GlitchLabel className="block text-center text-xl mt-1">ENTER FRAGMENT</GlitchLabel>
+      <div className="text-center nx-mono text-xs text-nx-muted mt-4">
+        Type the digit given to you by
+      </div>
+      <div className="text-center nx-display text-lg text-nx-cyan nx-glow-cyan tracking-widest mt-1">
+        {mission.agent?.callsign ?? "THE AGENT"}
+      </div>
+
+      <motion.div
+        key={shake}
+        animate={{ x: shake ? [-10, 10, -6, 6, -3, 3, 0] : 0 }}
+        transition={{ duration: 0.45 }}
+        className="mt-8 flex justify-center"
+      >
+        <input
+          className="nx-input text-center nx-display"
+          style={{ width: 120, height: 140, fontSize: 72, letterSpacing: 0 }}
+          inputMode="numeric"
+          pattern="[0-9]"
+          maxLength={1}
+          value={digit}
+          onChange={(e) => setDigit(e.target.value.replace(/\D/g, "").slice(0, 1))}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          autoFocus
+        />
+      </motion.div>
+
+      <button className="nx-btn nx-btn-solid w-full mt-6" onClick={submit} disabled={busy || !/^[0-9]$/.test(digit)}>
+        {busy ? "…" : "Unlock Fragment"}
+      </button>
+      <div className="text-center nx-mono text-xs mt-3 text-nx-muted">
+        Wrong digit = −5 pts. Retries allowed.
+      </div>
+    </motion.div>
+  );
+}
+
+// ---------- Puzzle body renderers ----------
 function ChallengeBody({ type, questionData }: { type: string; questionData: any }) {
   if (type === "CIPHER") {
     return (
@@ -488,17 +652,12 @@ function ChallengeBody({ type, questionData }: { type: string; questionData: any
   return <div className="nx-mono text-xs text-nx-muted">Unsupported mission type.</div>;
 }
 
-// -------- Answer inputs by type --------
+// ---------- Answer inputs by type ----------
 function AnswerInput({
-  type, value, onChange, onSubmit, disabled, feedback,
+  type, value, onChange, onSubmit, disabled,
 }: {
-  type: string; value: string; onChange: (v: string) => void; onSubmit: () => void; disabled: boolean; feedback: "idle" | "ok" | "bad";
+  type: string; value: string; onChange: (v: string) => void; onSubmit: () => void; disabled: boolean;
 }) {
-  const border =
-    feedback === "ok"  ? { borderColor: "#00ff88", boxShadow: "0 0 0 3px rgba(0,255,136,.15)" }
-  : feedback === "bad" ? { borderColor: "#ff3366", boxShadow: "0 0 0 3px rgba(255,51,102,.15)" }
-  : undefined;
-
   if (type === "LOGIC_LOCK") {
     const digits = value.padEnd(3, " ").slice(0, 3).split("");
     return (
@@ -508,7 +667,6 @@ function AnswerInput({
             key={i}
             className="nx-input w-16 h-16 text-center nx-display text-2xl"
             inputMode="numeric" pattern="[0-9]" maxLength={1}
-            style={border}
             value={digits[i].trim()}
             onChange={(e) => {
               const d = e.target.value.replace(/\D/g, "").slice(0, 1);
@@ -535,7 +693,6 @@ function AnswerInput({
       <input
         className="nx-input w-full text-center nx-display text-xl"
         inputMode="numeric" placeholder="LINE #"
-        style={border}
         value={value}
         onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 3))}
         onKeyDown={(e) => e.key === "Enter" && onSubmit()}
@@ -548,7 +705,6 @@ function AnswerInput({
     <input
       className="nx-input w-full text-center nx-mono tracking-widest uppercase"
       placeholder="DECODED MESSAGE"
-      style={border}
       value={value}
       onChange={(e) => onChange(e.target.value.toUpperCase())}
       onKeyDown={(e) => e.key === "Enter" && onSubmit()}
@@ -557,39 +713,7 @@ function AnswerInput({
   );
 }
 
-// -------- Insider (manual approval) --------
-function InsiderPanel({
-  teamCode,
-  hint,
-  onHint,
-}: {
-  teamCode: string;
-  hint: string | null;
-  onHint?: () => void;
-}) {
-  return (
-    <div className="mt-4">
-      <div className="nx-card p-4 text-center">
-        <div className="text-nx-muted nx-mono text-xs mb-2">SHOW THIS CODE TO A TECH TEAM MEMBER</div>
-        <div className="nx-display text-3xl text-nx-magenta nx-glow-mag tracking-[8px]">{teamCode}</div>
-        <div className="text-nx-muted nx-mono text-xs mt-3">
-          When they verify, this mission unlocks automatically.
-        </div>
-      </div>
-      {onHint && !hint && (
-        <button className="nx-btn nx-btn-ghost w-full mt-3" onClick={onHint}>Reveal Hint</button>
-      )}
-      {hint && (
-        <div className="nx-card mt-3 p-3" style={{ borderColor: "#ffaa00" }}>
-          <div className="text-nx-yellow nx-mono text-xs mb-1">HINT</div>
-          <div className="nx-mono text-sm">{hint}</div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// -------- Vault screen --------
+// ---------- Vault ----------
 function VaultScreen({
   fragments, vaultAttempts, onUnlock,
 }: {
@@ -624,26 +748,16 @@ function VaultScreen({
   const attemptsLeft = Math.max(0, 3 - vaultAttempts);
 
   return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
-      className="pt-6"
-    >
+    <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="pt-6">
       <div className="text-center text-nx-muted nx-mono text-xs">FINAL SEQUENCE</div>
       <GlitchLabel className="block text-center text-2xl mt-1">VAULT ACCESS</GlitchLabel>
       <div className="text-center nx-mono text-xs text-nx-muted mt-4">
-        Enter the 5-digit master key derived from your fragments.
+        Enter the 5-digit master key from your collected fragments.
       </div>
-
       <div className="mt-6">
         <FragmentDisplay fragments={fragments} />
       </div>
-
-      <motion.div
-        key={shake}
-        animate={{ x: shake ? [-10, 10, -6, 6, -3, 3, 0] : 0 }}
-        transition={{ duration: 0.45 }}
-        className="flex gap-2 justify-center mt-8"
-      >
+      <motion.div key={shake} animate={{ x: shake ? [-10, 10, -6, 6, -3, 3, 0] : 0 }} transition={{ duration: 0.45 }} className="flex gap-2 justify-center mt-8">
         {digits.map((d, i) => (
           <input
             key={i}
@@ -665,33 +779,21 @@ function VaultScreen({
           />
         ))}
       </motion.div>
-
       <div className="text-center nx-mono text-xs mt-3 text-nx-muted">
-        Attempts left: <span className="text-nx-yellow">{attemptsLeft}</span> · Wrong attempt = -20 pts
+        Attempts left: <span className="text-nx-yellow">{attemptsLeft}</span> · Wrong = −20 pts
       </div>
-
-      <button
-        className="nx-btn nx-btn-solid w-full mt-6"
-        onClick={submit}
-        disabled={busy || digits.join("").length !== 5 || attemptsLeft === 0}
-      >
+      <button className="nx-btn nx-btn-solid w-full mt-6" onClick={submit} disabled={busy || digits.join("").length !== 5 || attemptsLeft === 0}>
         {busy ? "…" : "CRACK THE VAULT"}
       </button>
     </motion.div>
   );
 }
 
-// -------- Success --------
+// ---------- Success ----------
 function SuccessScreen({ score }: { score: number }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
-      className="pt-14 text-center"
-    >
-      <motion.div
-        animate={{ scale: [1, 1.06, 1] }}
-        transition={{ repeat: Infinity, duration: 1.6 }}
-      >
+    <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="pt-14 text-center">
+      <motion.div animate={{ scale: [1, 1.06, 1] }} transition={{ repeat: Infinity, duration: 1.6 }}>
         <GlitchLabel color="green" className="text-4xl">ACCESS GRANTED</GlitchLabel>
       </motion.div>
       <div className="text-nx-muted nx-mono text-sm mt-6">

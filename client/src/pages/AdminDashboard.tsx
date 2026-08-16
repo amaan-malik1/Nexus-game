@@ -208,12 +208,12 @@ function TeamsTab() {
     await api.patch(`/api/admin/teams/${id}/score`, { delta });
     teams.refresh();
   }
-  async function approve(id: string) {
+  async function verifyFragment(id: string, missionOrder?: number) {
     try {
-      await api.post(`/api/admin/teams/${id}/approve-mission`);
-      toast("Mission approved", "success");
+      await api.post(`/api/admin/teams/${id}/verify-fragment`, missionOrder ? { missionOrder } : {});
+      toast(missionOrder ? `Fragment ${missionOrder} unlocked` : "Fragment unlocked", "success");
       teams.refresh();
-    } catch (e: any) { toast(e.response?.data?.error || "Approve failed", "error"); }
+    } catch (e: any) { toast(e.response?.data?.error || "Verify failed", "error"); }
   }
 
   return (
@@ -291,8 +291,9 @@ function TeamsTab() {
                                 <span className={cx(
                                   m.status === "COMPLETED" && "text-nx-green",
                                   m.status === "ACTIVE" && "text-nx-cyan",
+                                  m.status === "AWAITING_FRAGMENT" && "text-nx-yellow",
                                   m.status === "LOCKED" && "text-nx-muted",
-                                )}>{m.status}</span>
+                                )}>{m.status === "AWAITING_FRAGMENT" ? "AWAITING" : m.status}</span>
                               </div>
                             ))}
                           </div>
@@ -306,12 +307,23 @@ function TeamsTab() {
                               </button>
                             ))}
                           </div>
-                          <div className="text-nx-muted text-xs mt-4 mb-2">MANUAL APPROVAL</div>
-                          <button className="nx-btn" onClick={() => approve(t.id)}>
-                            Approve current mission step
+                          <div className="text-nx-muted text-xs mt-4 mb-2">STAFF VERIFY</div>
+                          <button className="nx-btn nx-btn-solid" onClick={() => verifyFragment(t.id)}>
+                            Verify current fragment
                           </button>
-                          <div className="text-nx-muted text-xs mt-1">
-                            Use for INSIDER and other manual missions.
+                          <div className="text-nx-muted text-xs mt-1 mb-3">
+                            Awards fragment for team's current mission and advances them.
+                          </div>
+                          <div className="text-nx-muted text-xs mb-1">FORCE UNLOCK BY MISSION</div>
+                          <div className="flex gap-1 flex-wrap">
+                            {[1,2,3,4,5].map((n) => (
+                              <button
+                                key={n}
+                                className="nx-btn nx-btn-ghost !px-3 !py-1 text-xs"
+                                onClick={() => verifyFragment(t.id, n)}
+                                title={`Force unlock fragment ${n}`}
+                              >M{n}</button>
+                            ))}
                           </div>
                         </div>
                         <div>
@@ -375,11 +387,19 @@ function TeamsTab() {
 // ============ Missions ============
 function MissionsTab() {
   const missions = usePolling<any[]>(() => api.get("/api/admin/missions").then((r) => r.data), 8000);
+  const techTeam = usePolling<any[]>(() => api.get("/api/admin/tech-team").then((r) => r.data), 30000);
   const [editing, setEditing] = useState<any | null>(null);
 
   async function toggleActive(m: any) {
     await api.put(`/api/admin/missions/${m.id}`, { isActive: !m.isActive });
     missions.refresh();
+  }
+  async function saveAgent(m: any, patch: { agentMemberId?: string | null; agentClueText?: string }) {
+    try {
+      await api.put(`/api/admin/missions/${m.id}`, patch);
+      toast("Mission updated", "success");
+      missions.refresh();
+    } catch (e: any) { toast(e.response?.data?.error || "Save failed", "error"); }
   }
   async function addChallenge(missionId: string) {
     const questionText = prompt("Question text?");
@@ -397,36 +417,17 @@ function MissionsTab() {
 
   return (
     <div className="space-y-4">
-      {(missions.data ?? []).map((m) => (
-        <div key={m.id} className="nx-card p-4">
-          <div className="flex items-center gap-3">
-            <span className="nx-display text-xs text-nx-muted">M{String(m.orderIndex).padStart(2, "0")}</span>
-            <span className="nx-display text-lg text-nx-cyan nx-glow-cyan">{m.title}</span>
-            <span className="text-nx-muted text-xs nx-mono">{m.type}</span>
-            <label className="ml-auto flex items-center gap-2 text-xs nx-mono">
-              <input type="checkbox" checked={m.isActive} onChange={() => toggleActive(m)} /> Active
-            </label>
-          </div>
-          <div className="text-nx-muted text-xs nx-mono mt-2">{m.description}</div>
-
-          <div className="mt-4 space-y-2">
-            {m.challenges.map((c: any, idx: number) => (
-              <div key={c.id} className="border border-nx-border rounded p-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-nx-muted text-xs">#{idx + 1}</span>
-                  <span className="nx-mono text-sm flex-1">{c.questionText}</span>
-                  <span className="text-nx-cyan nx-mono text-xs">{c.points} pts</span>
-                  {c.fragmentValue !== null && c.fragmentValue !== undefined && (
-                    <span className="text-nx-magenta nx-display text-sm">frag {c.fragmentValue}</span>
-                  )}
-                  <button className="text-nx-cyan text-xs underline" onClick={() => setEditing(c)}>edit</button>
-                  <button className="text-nx-danger text-xs underline" onClick={() => delChallenge(c.id)}>del</button>
-                </div>
-              </div>
-            ))}
-            <button className="nx-btn nx-btn-ghost" onClick={() => addChallenge(m.id)}>+ Add challenge</button>
-          </div>
-        </div>
+      {(missions.data ?? []).filter((m) => m.orderIndex < 99).map((m) => (
+        <MissionCard
+          key={m.id}
+          mission={m}
+          techTeam={techTeam.data ?? []}
+          onToggleActive={() => toggleActive(m)}
+          onSaveAgent={(patch) => saveAgent(m, patch)}
+          onEditChallenge={setEditing}
+          onAddChallenge={() => addChallenge(m.id)}
+          onDeleteChallenge={delChallenge}
+        />
       ))}
 
       <ChallengeEditor
@@ -434,6 +435,98 @@ function MissionsTab() {
         onClose={() => setEditing(null)}
         onSaved={() => { setEditing(null); missions.refresh(); }}
       />
+    </div>
+  );
+}
+
+function MissionCard({
+  mission: m, techTeam, onToggleActive, onSaveAgent, onEditChallenge, onAddChallenge, onDeleteChallenge,
+}: {
+  mission: any;
+  techTeam: any[];
+  onToggleActive: () => void;
+  onSaveAgent: (patch: { agentMemberId?: string | null; agentClueText?: string }) => void;
+  onEditChallenge: (c: any) => void;
+  onAddChallenge: () => void;
+  onDeleteChallenge: (id: string) => void;
+}) {
+  const [clue, setClue] = useState(m.agentClueText ?? "");
+  useEffect(() => { setClue(m.agentClueText ?? ""); }, [m.agentClueText]);
+
+  const fragmentDigit = (() => {
+    const c = [...(m.challenges ?? [])].reverse().find((c: any) => c.fragmentValue !== null && c.fragmentValue !== undefined);
+    return c?.fragmentValue ?? null;
+  })();
+
+  return (
+    <div className="nx-card p-4">
+      <div className="flex items-center gap-3">
+        <span className="nx-display text-xs text-nx-muted">M{String(m.orderIndex).padStart(2, "0")}</span>
+        <span className="nx-display text-lg text-nx-cyan nx-glow-cyan">{m.title}</span>
+        <span className="text-nx-muted text-xs nx-mono">{m.type}</span>
+        {fragmentDigit !== null && (
+          <span className="text-nx-magenta nx-display text-sm ml-2">FRAGMENT · {fragmentDigit}</span>
+        )}
+        <label className="ml-auto flex items-center gap-2 text-xs nx-mono">
+          <input type="checkbox" checked={m.isActive} onChange={onToggleActive} /> Active
+        </label>
+      </div>
+      <div className="text-nx-muted text-xs nx-mono mt-2">{m.description}</div>
+
+      {/* Agent assignment */}
+      <div className="mt-4 grid md:grid-cols-2 gap-3 nx-mono text-sm">
+        <div>
+          <div className="text-nx-muted text-xs mb-1">ASSIGNED AGENT</div>
+          <select
+            className="nx-input w-full"
+            value={m.agentMemberId ?? ""}
+            onChange={(e) => onSaveAgent({ agentMemberId: e.target.value || null })}
+          >
+            <option value="">— none —</option>
+            {techTeam.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.agentCallsign || t.role} — {t.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <div className="text-nx-muted text-xs mb-1">CLUE TEXT (shown after puzzle)</div>
+          <div className="flex gap-2">
+            <input
+              className="nx-input flex-1"
+              value={clue}
+              onChange={(e) => setClue(e.target.value)}
+              placeholder="e.g. Find the CRYPTO AGENT near the labs…"
+            />
+            <button
+              className="nx-btn nx-btn-ghost !px-3"
+              disabled={clue === (m.agentClueText ?? "")}
+              onClick={() => onSaveAgent({ agentClueText: clue })}
+            >Save</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Challenges */}
+      <div className="mt-4 space-y-2">
+        <div className="text-nx-muted text-xs">PUZZLE STEPS</div>
+        {m.challenges.map((c: any, idx: number) => (
+          <div key={c.id} className="border border-nx-border rounded p-3">
+            <div className="flex items-center gap-2">
+              <span className="text-nx-muted text-xs">#{idx + 1}</span>
+              <span className="nx-mono text-sm flex-1">{c.questionText}</span>
+              <span className="text-nx-cyan nx-mono text-xs">{c.points} pts</span>
+              {c.fragmentValue !== null && c.fragmentValue !== undefined && (
+                <span className="text-nx-magenta nx-display text-sm">frag {c.fragmentValue}</span>
+              )}
+              <button className="text-nx-cyan text-xs underline" onClick={() => onEditChallenge(c)}>edit</button>
+              <button className="text-nx-danger text-xs underline" onClick={() => onDeleteChallenge(c.id)}>del</button>
+            </div>
+          </div>
+        ))}
+        <button className="nx-btn nx-btn-ghost" onClick={onAddChallenge}>+ Add challenge</button>
+      </div>
     </div>
   );
 }
@@ -562,7 +655,7 @@ function ActivityTab() {
         <input className="nx-input" placeholder="filter by teamId" value={team} onChange={(e) => setTeam(e.target.value)} />
         <select className="nx-input" value={action} onChange={(e) => setAction(e.target.value)}>
           <option value="">All actions</option>
-          {["MISSION_COMPLETED","MISSION_APPROVED","HINT_USED","VAULT_ATTEMPT","VAULT_SUCCESS","WRONG_ANSWER","SCORE_ADJUSTED","GAME_START","GAME_PAUSE","GAME_RESUME","GAME_FINISH"].map((a) =>
+          {["PUZZLE_SOLVED","PUZZLE_STEP_SOLVED","FRAGMENT_AWARDED","STAFF_VERIFY","WRONG_ANSWER","WRONG_FRAGMENT","HINT_USED","VAULT_ATTEMPT","VAULT_SUCCESS","SCORE_ADJUSTED","GAME_START","GAME_PAUSE","GAME_RESUME","GAME_FINISH"].map((a) =>
             <option key={a} value={a}>{a}</option>
           )}
         </select>

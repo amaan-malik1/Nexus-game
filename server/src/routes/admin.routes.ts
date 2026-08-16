@@ -9,6 +9,7 @@ import {
   deleteTeam,
   adjustScore,
   approveMission,
+  verifyFragment,
   qrForTeam,
   qrSheet,
   listMissions,
@@ -20,6 +21,9 @@ import {
   deleteChallenge,
   activityFeed,
   adminLeaderboard,
+  listTechTeam,
+  upsertTechMember,
+  deleteTechMember,
 } from "../controllers/admin.controller.js";
 
 const r = Router();
@@ -35,7 +39,8 @@ r.get("/teams", listTeams);
 r.post("/teams", createTeam);
 r.delete("/teams/:id", deleteTeam);
 r.patch("/teams/:id/score", adjustScore);
-r.post("/teams/:id/approve-mission", approveMission);
+r.post("/teams/:id/approve-mission", approveMission); // legacy alias
+r.post("/teams/:id/verify-fragment", verifyFragment);
 r.get("/teams/:id/qr", qrForTeam);
 r.get("/teams/qr-sheet", qrSheet);
 
@@ -47,6 +52,12 @@ r.delete("/missions/:id", deleteMission);
 r.post("/missions/:id/challenges", addChallenge);
 r.put("/challenges/:id", updateChallenge);
 r.delete("/challenges/:id", deleteChallenge);
+
+// Tech team
+r.get("/tech-team", listTechTeam);
+r.post("/tech-team", upsertTechMember);
+r.put("/tech-team/:id", upsertTechMember);
+r.delete("/tech-team/:id", deleteTechMember);
 
 // Feed & leaderboard
 r.get("/activity", activityFeed);

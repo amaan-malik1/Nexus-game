@@ -92,3 +92,118 @@ export function answerMatches(challenge: { answer: string | null; questionData: 
   if (Array.isArray(accepts) && accepts.some((a) => normalize(a) === norm)) return true;
   return false;
 }
+
+/**
+ * Award the fragment for a mission and advance the team.
+ * Idempotent: if already awarded, does nothing.
+ * Bonus: first team to finish a mission gets +20.
+ * Used by both /api/game/fragment (player-entered digit) and /api/admin/.../verify-fragment (staff override).
+ */
+export async function awardFragmentAndAdvance(
+  teamId: string,
+  missionId: string,
+): Promise<{
+  alreadyCompleted: boolean;
+  pointsAwarded: number;
+  bonus: number;
+  fragmentValue: number | null;
+  missionOrder: number;
+}> {
+  return prisma.$transaction(async (tx) => {
+    const mission = await tx.mission.findUnique({
+      where: { id: missionId },
+      include: { challenges: { orderBy: { orderInMission: "asc" } } },
+    });
+    if (!mission) throw new Error("Mission not found");
+
+    // The fragment-bearing challenge is the last one with a fragmentValue set;
+    // typically the final step of the mission.
+    const fragmentChallenge =
+      [...mission.challenges].reverse().find((c) => c.fragmentValue !== null && c.fragmentValue !== undefined) ??
+      mission.challenges[mission.challenges.length - 1];
+    if (!fragmentChallenge) throw new Error("Mission has no challenges");
+
+    const tm = await tx.teamMission.findUnique({
+      where: { teamId_missionId: { teamId, missionId } },
+    });
+    if (!tm) throw new Error("Team mission missing");
+    if (tm.status === "COMPLETED") {
+      return {
+        alreadyCompleted: true,
+        pointsAwarded: 0,
+        bonus: 0,
+        fragmentValue: fragmentChallenge.fragmentValue ?? null,
+        missionOrder: mission.orderIndex,
+      };
+    }
+
+    if (fragmentChallenge.fragmentValue !== null && fragmentChallenge.fragmentValue !== undefined) {
+      const existing = await tx.teamFragment.findUnique({
+        where: { teamId_challengeId: { teamId, challengeId: fragmentChallenge.id } },
+      });
+      if (!existing) {
+        await tx.teamFragment.create({
+          data: {
+            teamId,
+            challengeId: fragmentChallenge.id,
+            value: fragmentChallenge.fragmentValue,
+            missionOrder: mission.orderIndex,
+          },
+        });
+      }
+    }
+
+    const priorCompletions = await tx.teamMission.count({
+      where: { missionId, status: "COMPLETED" },
+    });
+    const bonus = priorCompletions === 0 ? 20 : 0;
+
+    await tx.team.update({
+      where: { id: teamId },
+      data: { score: { increment: fragmentChallenge.points + bonus } },
+    });
+
+    await tx.teamMission.update({
+      where: { teamId_missionId: { teamId, missionId } },
+      data: {
+        status: "COMPLETED",
+        completedAt: new Date(),
+        currentStep: mission.challenges.length + 1,
+      },
+    });
+
+    const next = await tx.mission.findFirst({
+      where: { isActive: true, orderIndex: { gt: mission.orderIndex, lt: 99 } },
+      orderBy: { orderIndex: "asc" },
+    });
+    if (next) {
+      await tx.team.update({ where: { id: teamId }, data: { currentMission: next.orderIndex } });
+      await tx.teamMission.upsert({
+        where: { teamId_missionId: { teamId, missionId: next.id } },
+        update: { status: "ACTIVE", startedAt: new Date() },
+        create: { teamId, missionId: next.id, status: "ACTIVE", startedAt: new Date() },
+      });
+    } else {
+      await tx.team.update({
+        where: { id: teamId },
+        data: { currentMission: mission.orderIndex + 1 },
+      });
+    }
+
+    await tx.activityLog.create({
+      data: {
+        teamId,
+        action: "FRAGMENT_AWARDED",
+        metadata: { missionId, orderIndex: mission.orderIndex, bonus },
+      },
+    });
+
+    return {
+      alreadyCompleted: false,
+      pointsAwarded: fragmentChallenge.points + bonus,
+      bonus,
+      fragmentValue: fragmentChallenge.fragmentValue ?? null,
+      missionOrder: mission.orderIndex,
+    };
+  });
+}

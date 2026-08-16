@@ -23,6 +23,7 @@ enum MissionType {
 enum TeamMissionStatus {
   LOCKED
   ACTIVE
+  AWAITING_FRAGMENT
   COMPLETED
 }
 
@@ -62,13 +63,16 @@ model Team {
 }
 
 model Mission {
-  id           String      @id @default(cuid())
-  orderIndex   Int         @unique
-  title        String
-  type         MissionType
-  description  String
-  briefingText String
-  isActive     Boolean     @default(true)
+  id            String      @id @default(cuid())
+  orderIndex    Int         @unique
+  title         String
+  type          MissionType
+  description   String
+  briefingText  String
+  isActive      Boolean     @default(true)
+  agentClueText String?
+  agentMemberId String?
+  agent         TechTeamMember? @relation(fields: [agentMemberId], references: [id], onDelete: SetNull)
 
   challenges   Challenge[]
   teamMissions TeamMission[]
@@ -94,17 +98,19 @@ model Challenge {
 }
 
 model TeamMission {
-  id           String            @id @default(cuid())
-  teamId       String
-  team         Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  missionId    String
-  mission      Mission           @relation(fields: [missionId], references: [id], onDelete: Cascade)
-  status       TeamMissionStatus @default(LOCKED)
-  startedAt    DateTime?
-  completedAt  DateTime?
-  hintUsed     Boolean           @default(false)
-  currentStep  Int               @default(1)
-  wrongAttempts Int              @default(0)
+  id             String            @id @default(cuid())
+  teamId         String
+  team           Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  missionId      String
+  mission        Mission           @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  status         TeamMissionStatus @default(LOCKED)
+  startedAt      DateTime?
+  puzzleSolvedAt DateTime?
+  completedAt    DateTime?
+  hintUsed       Boolean           @default(false)
+  currentStep    Int               @default(1)
+  wrongAttempts  Int               @default(0)
+  fragmentAttempts Int             @default(0)
 
   @@unique([teamId, missionId])
 }
@@ -146,10 +152,13 @@ model ActivityLog {
 }
 
 model TechTeamMember {
-  id        String   @id @default(cuid())
-  name      String
-  role      String
-  photoUrl  String?
-  bio       String?
-  order     Int      @default(0)
+  id            String   @id @default(cuid())
+  name          String
+  role          String
+  photoUrl      String?
+  bio           String?
+  order         Int      @default(0)
+  agentCallsign String?
+
+  missions Mission[]
 }
