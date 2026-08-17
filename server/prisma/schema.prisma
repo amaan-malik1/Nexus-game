@@ -63,16 +63,19 @@ model Team {
 }
 
 model Mission {
-  id            String      @id @default(cuid())
-  orderIndex    Int         @unique
-  title         String
-  type          MissionType
-  description   String
-  briefingText  String
-  isActive      Boolean     @default(true)
-  agentClueText String?
-  agentMemberId String?
-  agent         TechTeamMember? @relation(fields: [agentMemberId], references: [id], onDelete: SetNull)
+  id               String      @id @default(cuid())
+  orderIndex       Int         @unique
+  title            String
+  type             MissionType
+  description      String
+  briefingText     String
+  isActive         Boolean     @default(true)
+  agentClueText    String?
+  agentAppearance  String?
+  agentAbout       String?
+  agentLocation    String?
+  agentMemberId    String?
+  agent            TechTeamMember? @relation(fields: [agentMemberId], references: [id], onDelete: SetNull)
 
   challenges   Challenge[]
   teamMissions TeamMission[]

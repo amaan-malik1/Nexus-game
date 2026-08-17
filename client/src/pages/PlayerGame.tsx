@@ -34,6 +34,9 @@ type MissionResp =
         briefingText: string;
         totalSteps: number;
         agentClueText: string | null;
+        agentAppearance: string | null;
+        agentAbout: string | null;
+        agentLocation: string | null;
         agent: Agent | null;
       };
       step: number;
@@ -227,6 +230,8 @@ function PlayerGameInner({ team, onLogout }: { team: any; onLogout: () => void }
           <ClueScreen
             key={`k-${missionId}`}
             mission={missionData.mission}
+            challenge={missionData.challenge}
+            missionType={missionData.mission.type}
             onProceed={() => setClueSeenFor(missionId)}
           />
         )}
@@ -385,9 +390,11 @@ function ChallengeScreen({
       });
       if (r.correct) {
         setAnswer("");
+        toast(`+${r.pointsAwarded ?? 50} points`, "success");
         onSolved();
       } else {
         setShake((n) => n + 1);
+        toast(`Wrong answer (-${r.penalty ?? 20} pts)`, "error");
       }
     } catch (e: any) {
       toast(e.response?.data?.error || "Error", "error");
@@ -409,7 +416,7 @@ function ChallengeScreen({
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="pt-2">
       <div className="text-center text-nx-muted nx-mono text-xs">
-        MISSION {data.mission.orderIndex} / 5 · STEP {data.step} / {data.mission.totalSteps}
+        MISSION {data.mission.orderIndex} / 5 · STEP {data.step} / {data.mission.totalSteps + 1}
       </div>
       <GlitchLabel className="block text-center text-xl mt-1">{data.mission.title}</GlitchLabel>
 
@@ -460,18 +467,30 @@ function ChallengeScreen({
 
 // ---------- Clue (post-puzzle "find the agent") ----------
 function ClueScreen({
-  mission, onProceed,
+  mission, challenge, missionType, onProceed,
 }: {
   mission: NonNullable<Extract<MissionResp, { done?: false }>["mission"]>;
+  challenge: Extract<MissionResp, { done?: false }>["challenge"];
+  missionType: string;
   onProceed: () => void;
 }) {
   const agent = mission.agent;
+  const isNoPuzzle = challenge.requiresManualApproval;
+  const hasStructuredClue = !!(mission.agentAppearance || mission.agentAbout || mission.agentLocation);
   return (
     <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="pt-4">
-      <div className="text-center text-nx-green nx-mono text-xs tracking-widest mb-2">✓ PUZZLE DECODED</div>
-      <GlitchLabel color="green" className="block text-center text-xl mb-6">TARGET IDENTIFIED</GlitchLabel>
+      <div className="text-center text-nx-muted nx-mono text-xs mb-1">
+        MISSION {mission.orderIndex} / 5 · {isNoPuzzle ? "STEP 1 / 1" : "STEP 2 / 2"}
+      </div>
+      {!isNoPuzzle && (
+        <div className="text-center text-nx-green nx-mono text-xs tracking-widest mb-2">✓ PUZZLE DECODED</div>
+      )}
+      <GlitchLabel color={isNoPuzzle ? "cyan" : "green"} className="block text-center text-xl mb-6">
+        {isNoPuzzle ? "TARGET INTEL" : "TARGET IDENTIFIED"}
+      </GlitchLabel>
 
-      <div className="nx-card nx-card-cyan p-6 text-center">
+      {/* Callsign header card */}
+      <div className="nx-card nx-card-cyan p-5 text-center">
         {agent?.photoUrl && (
           <img src={agent.photoUrl} alt={agent.callsign} className="w-24 h-24 rounded-full mx-auto mb-3 border-2 border-nx-cyan object-cover" />
         )}
@@ -482,23 +501,76 @@ function ClueScreen({
         {agent?.role && agent.role !== agent.callsign && (
           <div className="text-nx-muted nx-mono text-xs mt-1">{agent.role}</div>
         )}
-        {(agent?.bio || mission.agentClueText) && (
-          <div className="mt-4 nx-mono text-sm text-nx-text/90 whitespace-pre-line">
-            {mission.agentClueText ?? agent?.bio}
-          </div>
-        )}
       </div>
 
-      <div className="mt-6 nx-card p-3 text-center">
+      {/* Structured appearance / about / location sections */}
+      {hasStructuredClue ? (
+        <div className="mt-3 space-y-2">
+          {mission.agentAppearance && (
+            <ClueSection label="APPEARANCE" tint="cyan">
+              {mission.agentAppearance}
+            </ClueSection>
+          )}
+          {mission.agentAbout && (
+            <ClueSection label="ABOUT" tint="magenta">
+              {mission.agentAbout}
+            </ClueSection>
+          )}
+          {mission.agentLocation && (
+            <ClueSection label="LOCATION" tint="yellow">
+              {mission.agentLocation}
+            </ClueSection>
+          )}
+        </div>
+      ) : (
+        // Fallback for missions still using the old single-blob agentClueText
+        (agent?.bio || mission.agentClueText) && (
+          <div className="nx-card p-4 mt-3">
+            <div className="nx-mono text-sm text-nx-text/90 whitespace-pre-line">
+              {mission.agentClueText ?? agent?.bio}
+            </div>
+          </div>
+        )
+      )}
+
+      {/* Show the puzzle body inside the clue screen when there's no phone puzzle
+          (traits list for INSIDER, etc.) — this IS the physical clue. */}
+      {isNoPuzzle && (
+        <div className="nx-card p-4 mt-3">
+          <div className="text-nx-yellow nx-mono text-xs mb-2 tracking-widest">MATCH ALL TRAITS</div>
+          <ChallengeBody type={missionType} questionData={challenge.questionData} />
+        </div>
+      )}
+
+      <div className="mt-4 nx-card p-3 text-center">
         <div className="text-nx-yellow nx-mono text-xs">
-          They will task you and hand over a single digit — your fragment for this mission.
+          Find the agent, complete their task, and they will hand you a single digit — your fragment.
         </div>
       </div>
 
-      <button className="nx-btn nx-btn-solid w-full mt-6" onClick={onProceed}>
+      <button className="nx-btn nx-btn-solid w-full mt-4" onClick={onProceed}>
         I found them
       </button>
     </motion.div>
+  );
+}
+
+function ClueSection({
+  label, tint, children,
+}: {
+  label: string;
+  tint: "cyan" | "magenta" | "yellow";
+  children: React.ReactNode;
+}) {
+  const color =
+    tint === "magenta" ? { border: "#ff00aa", label: "text-nx-magenta" }
+    : tint === "yellow" ? { border: "#ffaa00", label: "text-nx-yellow" }
+    :                     { border: "#00f0ff", label: "text-nx-cyan" };
+  return (
+    <div className="nx-card p-4" style={{ borderColor: color.border }}>
+      <div className={`${color.label} nx-mono text-xs tracking-[3px] mb-1`}>{label}</div>
+      <div className="nx-mono text-sm text-nx-text/95 whitespace-pre-line">{children}</div>
+    </div>
   );
 }
 
@@ -523,7 +595,7 @@ function FragmentEntryScreen({
         setDigit("");
       } else {
         setShake((n) => n + 1);
-        toast("Wrong digit (-5 pts)", "error");
+        toast(`Wrong digit (-${data.penalty ?? 20} pts)`, "error");
       }
     } catch (e: any) {
       toast(e.response?.data?.error || "Error", "error");
@@ -566,7 +638,7 @@ function FragmentEntryScreen({
         {busy ? "…" : "Unlock Fragment"}
       </button>
       <div className="text-center nx-mono text-xs mt-3 text-nx-muted">
-        Wrong digit = −5 pts. Retries allowed.
+        Wrong digit = −20 pts. Retries allowed.
       </div>
     </motion.div>
   );

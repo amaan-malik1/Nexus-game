@@ -3,77 +3,79 @@ import { PrismaClient, MissionType } from "@prisma/client";
 const prisma = new PrismaClient();
 
 async function main() {
-  // Game config singleton
   await prisma.gameConfig.upsert({
     where: { id: "singleton" },
     update: {},
     create: { id: "singleton", masterKey: "72941" },
   });
 
-  // Wipe missions to keep seed idempotent
   await prisma.challenge.deleteMany({});
   await prisma.mission.deleteMany({});
   await prisma.techTeamMember.deleteMany({});
 
-  // Tech team agent roster (edit callsigns/bios in admin)
+  // Tech team agent roster — edit real names + callsigns from the admin later
   const [crypto, protocol, archivist, locksmith, insider] = await Promise.all([
-    prisma.techTeamMember.create({ data: { name: "TBD", role: "Crypto Agent",     agentCallsign: "CRYPTO AGENT",     order: 1, bio: "Somewhere on the ground floor. Ask around for the cipher key." } }),
-    prisma.techTeamMember.create({ data: { name: "TBD", role: "Protocol Handler", agentCallsign: "PROTOCOL HANDLER", order: 2, bio: "Watches the corridor near the labs. Speaks in symbols." } }),
-    prisma.techTeamMember.create({ data: { name: "TBD", role: "Data Archivist",   agentCallsign: "DATA ARCHIVIST",   order: 3, bio: "Guards the archive terminal. Only shows the ledger to verified operatives." } }),
-    prisma.techTeamMember.create({ data: { name: "TBD", role: "Locksmith",        agentCallsign: "LOCKSMITH",        order: 4, bio: "Carries the combination in their head, never in writing." } }),
-    prisma.techTeamMember.create({ data: { name: "TBD", role: "The Insider",      agentCallsign: "THE INSIDER",      order: 5, bio: "Blends in with the crowd. Match every trait or they'll deny everything." } }),
+    prisma.techTeamMember.create({ data: { name: "TBD", role: "Crypto Agent",     agentCallsign: "CRYPTO AGENT",     order: 1, bio: "Speaks in patterns. Every word is a puzzle waiting to be solved." } }),
+    prisma.techTeamMember.create({ data: { name: "TBD", role: "Protocol Handler", agentCallsign: "PROTOCOL HANDLER", order: 2, bio: "Structure first, feelings later. Every process must be followed." } }),
+    prisma.techTeamMember.create({ data: { name: "TBD", role: "Data Archivist",   agentCallsign: "DATA ARCHIVIST",   order: 3, bio: "Knows what happened, when it happened, and who was there." } }),
+    prisma.techTeamMember.create({ data: { name: "TBD", role: "Locksmith",        agentCallsign: "LOCKSMITH",        order: 4, bio: "Thinks in loops. Solves what the rest of us miss." } }),
+    prisma.techTeamMember.create({ data: { name: "TBD", role: "The Insider",      agentCallsign: "THE INSIDER",      order: 5, bio: "Everywhere and nowhere. Match every trait or don't bother." } }),
   ]);
 
+  // ============================================================
+  // MISSION 1 · CRACK THE CIPHER (Caesar +3, 2 steps)
+  // ============================================================
   const m1 = await prisma.mission.create({
     data: {
       orderIndex: 1,
       title: "CRACK THE CIPHER",
       type: MissionType.CIPHER,
-      description: "Decode encrypted transmissions to locate your first contact.",
+      description: "Decode the encrypted greeting, then hunt the Crypto Agent.",
       briefingText:
-        "> INCOMING TRANSMISSION\n> ENCRYPTION: CAESAR\n> DECODE TO PROCEED.",
-      agentClueText:
-        "Decoded message points to the CRYPTO AGENT. Find them in person. They will task you and hand over Fragment 1.",
+        "> INCOMING TRANSMISSION\n> ENCRYPTION: CAESAR SHIFT +3\n> DECODE TO PROCEED.",
+      agentAppearance:
+        "Kabhi khaali haath nahi milenge. Ek cheez hamesha grip mein rehti hai — steam nikalti hui.",
+      agentAbout:
+        "Words ke saath khelte rehte hain — har baat mein ek chhupa hua pattern. Baat karo, aap khud pakadenge unka rhythm.",
+      agentLocation:
+        "Wahaan honge jahaan discussion sabse zyada garam hai. Cup aur crowd — dono ke beech mein.",
       agentMemberId: crypto.id,
     },
   });
-  await prisma.challenge.createMany({
-    data: [
-      {
-        missionId: m1.id,
-        orderInMission: 1,
-        questionText: "Decode the encrypted message",
-        questionData: {
-          cipherText: "KHOOR",
-          hintClue: "A → D (each letter shifted forward by 3)",
-        },
-        answer: "HELLO",
-        points: 50,
-        hintText: "Think about Caesar. Each letter has been shifted by 3.",
+  await prisma.challenge.create({
+    data: {
+      missionId: m1.id,
+      orderInMission: 1,
+      questionText: "Decode karo bacchon — kya haal chaal.",
+      questionData: {
+        cipherText: "KHOOR EDFFKR",
+        hintClue: "A → D · shift har letter 3 forward",
       },
-      {
-        missionId: m1.id,
-        orderInMission: 2,
-        questionText: "Decode the second message to find your next contact",
-        questionData: { cipherText: "ILQG WKH FUBSWR DJHQW" },
-        answer: "FIND THE CRYPTO AGENT",
-        points: 50,
-        fragmentValue: 7,
-        hintText: "Same shift as before. Spaces stay.",
-      },
-    ],
+      answer: "HELLO BACCHO",
+      points: 50,
+      fragmentValue: 7,
+      hintCost: 30,
+      hintText: "Caesar shift +3. KHOOR = HELLO. Spaces intact.",
+    },
   });
 
+  // ============================================================
+  // MISSION 2 · DEAD PROTOCOL (symbol → letter)
+  // ============================================================
   const m2 = await prisma.mission.create({
     data: {
       orderIndex: 2,
       title: "DEAD PROTOCOL",
       type: MissionType.PROTOCOL,
-      description: "Symbols map to letters. Letters map to physical directions.",
+      description: "Symbols ko decode karo. Legend dhyaan se padho.",
       briefingText:
-        "> AGENT ONLINE\n> LEGACY PROTOCOL DETECTED\n> TRANSLATE THE SYMBOL STREAM.",
-      agentClueText:
-        "The decoded route leads to the PROTOCOL HANDLER. Show them your decoded sequence and they will release Fragment 2.",
+        "> LEGACY PROTOCOL DETECTED\n> SYMBOLS MAP TO LETTERS\n> DECODE THE KEYWORD.",
+      agentAppearance:
+        "Fingers rest mein bhi type karte hain — koi imaginary keyboard baja rahe hote hain. Notice karke pehchan jaoge.",
+      agentAbout:
+        "Har cheez ke liye ek specific process hai inke paas. Improvisation? Never. Rules? Always.",
+      agentLocation:
+        "Wahaan honge jahaan tech setup zaroori hai — mic, cable, sound. Setup ke bina reh nahi sakte.",
       agentMemberId: protocol.id,
     },
   });
@@ -81,30 +83,37 @@ async function main() {
     data: {
       missionId: m2.id,
       orderInMission: 1,
-      questionText:
-        "Decode the symbols using the protocol, then follow the physical directions",
+      questionText: "Legend use karo, symbols decode karo. 4 letters ka ek desi shabd banega.",
       questionData: {
-        legend: { "▲": "A", "●": "B", "■": "C", "◆": "D", "★": "E" },
-        encoded: "■ ▲ ★ ●",
-        directions: { A: "LEFT", B: "RIGHT", C: "FORWARD", E: "STOP" },
+        legend: { "⌘": "C", "♪": "H", "☯": "A", "☕": "I", "⚡": "T", "✧": "E" },
+        encoded: "⌘ ♪ ☯ ☕",
+        directions: { C: "Chalo", H: "Halke se", A: "Aage", I: "Ittemenaan" },
       },
-      answer: "CAEB",
-      points: 100,
+      answer: "CHAI",
+      points: 50,
       fragmentValue: 2,
-      hintText: "The symbols map to letters. Find the letter for each symbol.",
+      hintCost: 30,
+      hintText: "Sirf pehle 4 symbols dekho. Legend mein har ek ka letter likha hai.",
     },
   });
 
+  // ============================================================
+  // MISSION 3 · CORRUPTED DATA (find the odd line)
+  // ============================================================
   const m3 = await prisma.mission.create({
     data: {
       orderIndex: 3,
       title: "CORRUPTED DATA",
       type: MissionType.DATA_CORRUPTION,
-      description: "One entry in the ledger is corrupted. Find it.",
+      description: "Enrollment list leak ho gayi. Ek ID mein ek character ne bhes badla hai.",
       briefingText:
-        "> DATA STREAM UNSTABLE\n> INTEGRITY CHECK REQUIRED\n> IDENTIFY THE ANOMALY.",
-      agentClueText:
-        "Report the corrupted line number to the DATA ARCHIVIST. They will confirm and release Fragment 3.",
+        "> ENROLLMENT LEDGER LEAKED\n> ONE ENTRY IS A FORGERY\n> IDENTIFY THE LINE NUMBER.",
+      agentAppearance:
+        "Chalte-firte ledger. Kuch bhi poocho — likhne ki tayaari mein rehte hain. Khaali haath rare hai.",
+      agentAbout:
+        "Har team ka status inhe pata hai. Kaun kahaan, kaun kya kar raha — sab data brain mein loaded rehta hai.",
+      agentLocation:
+        "Wahaan baithe honge jahaan se pura hall dikhta hai — front nahi, jahaan se sab observe ho sake.",
       agentMemberId: archivist.id,
     },
   });
@@ -112,45 +121,42 @@ async function main() {
     data: {
       missionId: m3.id,
       orderInMission: 1,
-      questionText:
-        "Find the corrupted entry. Which line number contains the error?",
+      questionText: "Kaunsi line mein ID ne bhes badla hai? Line number likho.",
       questionData: {
         entries: [
-          "A7K92P",
-          "A7K92P",
-          "A7K92P",
-          "A7K92P",
-          "A7K92P",
-          "A7K92P",
-          "A7K92P",
-          "A7K92P",
-          "A7K92P",
-          "A7K92R",
-          "A7K92P",
-          "A7K92P",
-          "A7K92P",
-          "A7K92P",
-          "A7K92P",
+          "NEXUS_2026_A","NEXUS_2026_A","NEXUS_2026_A",
+          "NEXUS_2026_A","NEXUS_2026_A","NEXUS_2026_A",
+          "NEXUS_2O26_A","NEXUS_2026_A","NEXUS_2026_A",
+          "NEXUS_2026_A","NEXUS_2026_A","NEXUS_2026_A",
+          "NEXUS_2026_A","NEXUS_2026_A","NEXUS_2026_A",
         ],
       },
-      answer: "10",
-      points: 100,
+      answer: "7",
+      points: 50,
       fragmentValue: 9,
+      hintCost: 30,
       hintText:
-        "Compare every single character in every line. One line is different.",
+        "Zero (0) aur letter O — dono dikhne mein same, matlab alag. Line 5-10 ke beech dekho.",
     },
   });
 
+  // ============================================================
+  // MISSION 4 · THE DIGITAL LOCK (3-digit mastermind)
+  // ============================================================
   const m4 = await prisma.mission.create({
     data: {
       orderIndex: 4,
       title: "THE DIGITAL LOCK",
       type: MissionType.LOGIC_LOCK,
-      description: "Deduce the 3-digit combination from the clues.",
+      description: "3-digit lock hai. Clues use karo, elimination logic lagao.",
       briefingText:
-        "> VAULT SUBSYSTEM LOCKED\n> DEDUCE THE COMBINATION\n> LOGIC IS YOUR KEY.",
-      agentClueText:
-        "Bring the combination to the LOCKSMITH. Recite it correctly and they will hand over Fragment 4.",
+        "> VAULT SUBSYSTEM LOCKED\n> DEDUCE THE COMBINATION\n> HAR CLUE DHYAAN SE PADHO.",
+      agentAppearance:
+        "Sound se allergy hai. Kaan hamesha bhare rehte hain — chahe music baj raha ho ya nahi, coverage full.",
+      agentAbout:
+        "Har puzzle solve karne mein satisfaction milta hai. Bolne se pehle sochte hain — 2-3 baar.",
+      agentLocation:
+        "Bheed se door. Jahaan koi nahi hai, wahin ye milenge — solo mode is default mode.",
       agentMemberId: locksmith.id,
     },
   });
@@ -158,35 +164,48 @@ async function main() {
     data: {
       missionId: m4.id,
       orderInMission: 1,
-      questionText: "Crack the 3-digit lock using the clues",
+      questionText: "3-digit lock crack karo. 5 clues neeche — elimination lagao.",
       questionData: {
         clues: [
-          { code: "682", hint: "One digit is correct and correctly placed" },
-          { code: "614", hint: "One digit is correct but wrongly placed" },
-          { code: "206", hint: "Two digits are correct but both wrongly placed" },
-          { code: "738", hint: "Nothing is correct" },
-          { code: "780", hint: "One digit is correct but wrongly placed" },
+          { code: "682", hint: "One digit correct AND correctly placed" },
+          { code: "614", hint: "One digit correct but wrongly placed" },
+          { code: "206", hint: "Two digits correct but both wrongly placed" },
+          { code: "738", hint: "Nothing correct" },
+          { code: "780", hint: "One digit correct but wrongly placed" },
         ],
       },
       answer: "042",
-      points: 100,
+      points: 50,
       fragmentValue: 4,
+      hintCost: 30,
       hintText:
-        "Start by eliminating digits using clue 738 — none of 7, 3, or 8 appear in the answer.",
+        "Clue 738 se shuru karo — 7, 3, 8 answer mein NAHI hain. Baaki elimination.",
     },
   });
 
+  // ============================================================
+  // MISSION 5 · FIND THE INSIDER (no phone puzzle — pure hunt)
+  // ============================================================
   const m5 = await prisma.mission.create({
     data: {
       orderIndex: 5,
       title: "FIND THE INSIDER",
       type: MissionType.INSIDER,
       description:
-        "A member of the Tech Team is the insider. Find them by matching ALL five traits.",
+        "Insider ek hi hai. Har trait match hone chahiye — 4/5 nahi, PAANCH ke paanch.",
       briefingText:
-        "> ONE OF THEM IS THE INSIDER\n> TALK TO THE TECH TEAM\n> ALL TRAITS MUST MATCH.",
+        "> INSIDER IDENTIFIED IN THE CROWD\n> ALL FIVE TRAITS MUST MATCH\n> GO. FIND. VERIFY.",
       agentClueText:
-        "The INSIDER matches every trait. Find them, verify all five, and they will hand over Fragment 5.",
+        "Insider chhupa hua hai crowd mein. Alag se identify nahi hoga — sab traits ka combo maango.\n" +
+        "Woh CENTER STAGE ke aas-paas ghoomta rahega, ek printed 'STAFF' badge nahi pehnega — deliberately.\n" +
+        "Blue jeans, jo bhi upar ho, aur ek small notebook haath mein. Chai cup optional.\n" +
+        "Har trait poocho. Sab paanch match hote hi — Fragment 5 mile jayega.",
+      agentAppearance:
+        "Bilkul jaise koi bhi doosra senior — koi giveaway nahi. Ye trap bhi hai aur test bhi.",
+      agentAbout:
+        "5 traits. Sab ke sab match hone chahiye. 4/5 aur 5/5 mein zameen-aasman ka farak hai.",
+      agentLocation:
+        "Fixed jagah nahi. Ye khud aage nahi aayenge — aap hi dhoondhna hai. Har senior se poocho, har trait verify karo.",
       agentMemberId: insider.id,
     },
   });
@@ -194,25 +213,28 @@ async function main() {
     data: {
       missionId: m5.id,
       orderInMission: 1,
-      questionText: "Find the Tech Team member who matches ALL these traits",
+      questionText: "Har trait match kariye. All 5 hone chahiye — 4/5 = NOT the one.",
       questionData: {
         traits: [
-          "Has participated in a hackathon",
-          "Knows Python",
-          "Has worked on an AI project",
-          "Loves gaming",
-          "Has broken a laptop accidentally",
+          "Chai over coffee — always",
+          "Has stayed up till 3 AM debugging",
+          "Fluent in Python AND Hindi memes",
+          "Has fixed someone else's laptop for free",
+          "Owns 3+ tech-event T-shirts",
         ],
       },
       answer: null,
-      points: 100,
+      points: 50,
       fragmentValue: 1,
+      hintCost: 30,
       hintText:
-        "Ask each senior directly. They must match ALL five traits, not just some.",
+        "Har senior se ek-ek karke poocho. All 5 match = INSIDER. Even 4/5 = NOT the one.",
     },
   });
 
-  // Alternate challenge bank — kept as isAlternate=true, unattached to team play by default
+  // ============================================================
+  // ALTERNATE BANK (kept for reference — swap in via admin if desired)
+  // ============================================================
   const alt = await prisma.mission.upsert({
     where: { orderIndex: 99 },
     update: {},
@@ -225,112 +247,12 @@ async function main() {
       isActive: false,
     },
   });
-  await prisma.challenge.createMany({
-    data: [
-      // Cipher alternatives
-      {
-        missionId: alt.id,
-        questionText: "Decode ROT13: 'URYYB'",
-        questionData: { cipherText: "URYYB", cipher: "ROT13" },
-        answer: "HELLO",
-        points: 50,
-        hintText: "Halfway through the alphabet.",
-        isAlternate: true,
-      },
-      {
-        missionId: alt.id,
-        questionText: "Decode: 'EDOC EHT KCARC'",
-        questionData: { cipherText: "EDOC EHT KCARC", cipher: "REVERSE" },
-        answer: "CRACK THE CODE",
-        points: 50,
-        hintText: "Read it backwards.",
-        isAlternate: true,
-      },
-      {
-        missionId: alt.id,
-        questionText: "Decode Atbash: 'SVOOL'",
-        questionData: { cipherText: "SVOOL", cipher: "ATBASH" },
-        answer: "HELLO",
-        points: 50,
-        hintText: "A=Z, B=Y, C=X ...",
-        isAlternate: true,
-      },
-      {
-        missionId: alt.id,
-        questionText: "Decode binary: '01001000 01001001'",
-        questionData: { cipherText: "01001000 01001001", cipher: "BINARY" },
-        answer: "HI",
-        points: 50,
-        hintText: "Computers speak in 0s and 1s.",
-        isAlternate: true,
-      },
-      {
-        missionId: alt.id,
-        questionText: "Decode morse: '.... . .-.. .-.. ---'",
-        questionData: { cipherText: ".... . .-.. .-.. ---", cipher: "MORSE" },
-        answer: "HELLO",
-        points: 50,
-        hintText: "Dots and dashes.",
-        isAlternate: true,
-      },
-      // Logic/Math alternatives
-      {
-        missionId: alt.id,
-        questionText: "If A=1, B=2... what is CODE?",
-        questionData: { prompt: "Sum the letter positions of C,O,D,E" },
-        answer: "27",
-        points: 100,
-        hintText: "C=3, O=15, D=4, E=5.",
-        isAlternate: true,
-      },
-      {
-        missionId: alt.id,
-        questionText: "What comes next: 2, 6, 12, 20, 30, ?",
-        questionData: { sequence: [2, 6, 12, 20, 30] },
-        answer: "42",
-        points: 100,
-        hintText: "Differences are 4, 6, 8, 10, ...",
-        isAlternate: true,
-      },
-      {
-        missionId: alt.id,
-        questionText:
-          "I am an odd number. Remove one letter and I become even. What am I?",
-        questionData: {},
-        answer: "SEVEN",
-        points: 100,
-        hintText: "It's a spelling trick.",
-        isAlternate: true,
-      },
-      {
-        missionId: alt.id,
-        questionText: "Convert hex 0x1F to decimal",
-        questionData: { hex: "1F" },
-        answer: "31",
-        points: 100,
-        hintText: "1*16 + 15.",
-        isAlternate: true,
-      },
-      // Trivia
-      { missionId: alt.id, questionText: "What does HTML stand for?", questionData: {}, answer: "HYPERTEXT MARKUP LANGUAGE", points: 50, isAlternate: true },
-      { missionId: alt.id, questionText: "Who created Linux?", questionData: {}, answer: "LINUS TORVALDS", points: 50, isAlternate: true },
-      { missionId: alt.id, questionText: "What does CPU stand for?", questionData: {}, answer: "CENTRAL PROCESSING UNIT", points: 50, isAlternate: true },
-      { missionId: alt.id, questionText: "In which year was the first iPhone released?", questionData: {}, answer: "2007", points: 50, isAlternate: true },
-      { missionId: alt.id, questionText: "What language is known as the language of the web?", questionData: {}, answer: "JAVASCRIPT", points: 50, isAlternate: true },
-      { missionId: alt.id, questionText: "What does API stand for?", questionData: {}, answer: "APPLICATION PROGRAMMING INTERFACE", points: 50, isAlternate: true },
-      { missionId: alt.id, questionText: "Output of print(type(42)) in Python?", questionData: {}, answer: "<CLASS 'INT'>", points: 50, isAlternate: true },
-      { missionId: alt.id, questionText: "How many bits in a byte?", questionData: {}, answer: "8", points: 50, isAlternate: true },
-      { missionId: alt.id, questionText: "What does SQL stand for?", questionData: {}, answer: "STRUCTURED QUERY LANGUAGE", points: 50, isAlternate: true },
-      { missionId: alt.id, questionText: "What company developed React?", questionData: { accepts: ["FACEBOOK", "META"] }, answer: "FACEBOOK", points: 50, isAlternate: true },
-    ],
-  });
 
-  console.log("✅ Seed complete. Master key = 72941");
+  console.log("✅ Seed complete.");
+  console.log("   Master key = 72941");
+  console.log("   Scoring: correct answer +50 · correct fragment +50 · wrong answer -20 · hint -30");
 }
 
 main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
+  .catch((e) => { console.error(e); process.exit(1); })
   .finally(() => prisma.$disconnect());

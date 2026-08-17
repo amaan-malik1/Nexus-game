@@ -156,11 +156,12 @@ export async function awardFragmentAndAdvance(
     const priorCompletions = await tx.teamMission.count({
       where: { missionId, status: "COMPLETED" },
     });
+    const FRAGMENT_POINTS = 50;
     const bonus = priorCompletions === 0 ? 20 : 0;
 
     await tx.team.update({
       where: { id: teamId },
-      data: { score: { increment: fragmentChallenge.points + bonus } },
+      data: { score: { increment: FRAGMENT_POINTS + bonus } },
     });
 
     await tx.teamMission.update({
@@ -200,7 +201,7 @@ export async function awardFragmentAndAdvance(
 
     return {
       alreadyCompleted: false,
-      pointsAwarded: fragmentChallenge.points + bonus,
+      pointsAwarded: FRAGMENT_POINTS + bonus,
       bonus,
       fragmentValue: fragmentChallenge.fragmentValue ?? null,
       missionOrder: mission.orderIndex,

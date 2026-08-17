@@ -18,18 +18,23 @@ export function setPlayerToken(t: string | null) {
   else localStorage.removeItem(PLAYER_TOKEN_KEY);
 }
 
-// Route-based token selection: admin routes use admin token, game routes use player token
+// Route-based token selection: admin routes use admin token; every game route
+// EXCEPT the two explicitly public ones gets the player token.
+const PUBLIC_GAME_ROUTES = ["/api/game/status", "/api/game/leaderboard"];
 function tokenFor(url: string): string | null {
   if (url.startsWith("/api/admin")) return getAdminToken();
-  if (url.startsWith("/api/game/team") || url.startsWith("/api/game/mission") ||
-      url.startsWith("/api/game/submit") || url.startsWith("/api/game/hint") ||
-      url.startsWith("/api/game/fragments") || url.startsWith("/api/game/vault")) {
+  if (url.startsWith("/api/game")) {
+    if (PUBLIC_GAME_ROUTES.some((p) => url.startsWith(p))) return null;
     return getPlayerToken();
   }
   return null;
 }
 
-export const api = axios.create({ baseURL: "" });
+// In dev, Vite proxies /api → localhost:4000 (see vite.config.ts).
+// In prod (Vercel), set VITE_API_BASE_URL to your Render backend origin, e.g.
+//   VITE_API_BASE_URL=https://nexus-api.onrender.com
+const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+export const api = axios.create({ baseURL: API_BASE });
 
 api.interceptors.request.use((cfg) => {
   const t = tokenFor(cfg.url || "");
@@ -45,8 +50,14 @@ api.interceptors.response.use(
   (err) => {
     if (err.response?.status === 401) {
       const url: string = err.config?.url || "";
-      if (url.startsWith("/api/admin")) setAdminToken(null);
-      else if (url.startsWith("/api/game")) setPlayerToken(null);
+      // Only clear tokens if we actually SENT one — a 401 with no token attached
+      // means we routed the request wrong, not that the token is bad. Wiping
+      // localStorage in that case would log the user out over a client bug.
+      const sentAuth = !!err.config?.headers?.Authorization;
+      if (sentAuth) {
+        if (url.startsWith("/api/admin")) setAdminToken(null);
+        else if (url.startsWith("/api/game")) setPlayerToken(null);
+      }
     }
     return Promise.reject(err);
   },

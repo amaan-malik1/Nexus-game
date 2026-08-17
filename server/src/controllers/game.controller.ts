@@ -83,7 +83,7 @@ export async function currentMission(req: Request, res: Response) {
     return res.json({ done: true, message: "All missions complete." });
   }
 
-  const tm = await prisma.teamMission.findUnique({
+  let tm = await prisma.teamMission.findUnique({
     where: { teamId_missionId: { teamId, missionId: mission.id } },
   });
 
@@ -91,6 +91,16 @@ export async function currentMission(req: Request, res: Response) {
   const challenge = mission.challenges.find((c) => c.orderInMission === step) ??
     mission.challenges[0];
   if (!challenge) return res.json({ done: false, mission: null });
+
+  // Missions with no phone puzzle (INSIDER, etc.) skip the puzzle-submit
+  // phase entirely — the traits ARE the physical clue. Auto-transition
+  // to AWAITING_FRAGMENT so the client shows the clue + digit entry.
+  if (challenge.answer === null && tm && tm.status === "ACTIVE") {
+    tm = await prisma.teamMission.update({
+      where: { teamId_missionId: { teamId, missionId: mission.id } },
+      data: { status: "AWAITING_FRAGMENT", puzzleSolvedAt: new Date() },
+    });
+  }
 
   const awaitingFragment = tm?.status === "AWAITING_FRAGMENT";
 
@@ -104,6 +114,9 @@ export async function currentMission(req: Request, res: Response) {
       briefingText: mission.briefingText,
       totalSteps: mission.challenges.length,
       agentClueText: mission.agentClueText ?? null,
+      agentAppearance: mission.agentAppearance ?? null,
+      agentAbout: mission.agentAbout ?? null,
+      agentLocation: mission.agentLocation ?? null,
       agent: mission.agent
         ? {
             id: mission.agent.id,
@@ -181,25 +194,37 @@ export async function submitAnswer(req: Request, res: Response) {
   const correct = answerMatches(challenge, parsed.data.answer);
 
   if (!correct) {
-    await prisma.teamMission.update({
-      where: { teamId_missionId: { teamId, missionId: challenge.missionId } },
-      data: { wrongAttempts: { increment: 1 } },
-    });
-    await prisma.activityLog.create({
-      data: {
-        teamId,
-        action: "WRONG_ANSWER",
-        metadata: { challengeId: challenge.id, submitted: normalize(parsed.data.answer) },
-      },
-    });
-    return res.json({ correct: false });
+    await prisma.$transaction([
+      prisma.teamMission.update({
+        where: { teamId_missionId: { teamId, missionId: challenge.missionId } },
+        data: { wrongAttempts: { increment: 1 } },
+      }),
+      prisma.team.update({
+        where: { id: teamId },
+        data: { score: { decrement: 20 } },
+      }),
+      prisma.activityLog.create({
+        data: {
+          teamId,
+          action: "WRONG_ANSWER",
+          metadata: { challengeId: challenge.id, submitted: normalize(parsed.data.answer), cost: 20 },
+        },
+      }),
+    ]);
+    return res.json({ correct: false, penalty: 20 });
   }
 
-  // Correct answer path
+  // Correct answer — always +50 (whether intermediate step or final step)
+  const CORRECT_ANSWER_POINTS = 50;
   const total = challenge.mission.challenges.length;
   const isFinalStep = challenge.orderInMission >= total;
 
   const result = await prisma.$transaction(async (tx) => {
+    await tx.team.update({
+      where: { id: teamId },
+      data: { score: { increment: CORRECT_ANSWER_POINTS } },
+    });
+
     if (!isFinalStep) {
       await tx.teamMission.update({
         where: { teamId_missionId: { teamId, missionId: challenge.missionId } },
@@ -209,33 +234,36 @@ export async function submitAnswer(req: Request, res: Response) {
         data: {
           teamId,
           action: "PUZZLE_STEP_SOLVED",
-          metadata: { challengeId: challenge.id, step: challenge.orderInMission },
+          metadata: { challengeId: challenge.id, step: challenge.orderInMission, points: CORRECT_ANSWER_POINTS },
         },
       });
-      return { advancedTo: challenge.orderInMission + 1, awaitingFragment: false as const };
+      return {
+        advancedTo: challenge.orderInMission + 1,
+        awaitingFragment: false as const,
+        pointsAwarded: CORRECT_ANSWER_POINTS,
+      };
     }
 
-    // Final step — award small step points, then go to AWAITING_FRAGMENT.
-    // Point value defers to the fragment-entry step; step points can be zero here
-    // if you want fragment-entry to carry the full mission reward. For simplicity we
-    // don't award challenge.points here — awardFragmentAndAdvance will award it
-    // when the fragment is entered.
+    // Final step — award puzzle-solve points, then transition to AWAITING_FRAGMENT.
     await tx.teamMission.update({
       where: { teamId_missionId: { teamId, missionId: challenge.missionId } },
       data: {
         status: "AWAITING_FRAGMENT",
         puzzleSolvedAt: new Date(),
-        // keep currentStep on the fragment-bearing challenge so client can display it
       },
     });
     await tx.activityLog.create({
       data: {
         teamId,
         action: "PUZZLE_SOLVED",
-        metadata: { missionId: challenge.missionId, orderIndex: challenge.mission.orderIndex },
+        metadata: { missionId: challenge.missionId, orderIndex: challenge.mission.orderIndex, points: CORRECT_ANSWER_POINTS },
       },
     });
-    return { advancedTo: challenge.orderInMission, awaitingFragment: true as const };
+    return {
+      advancedTo: challenge.orderInMission,
+      awaitingFragment: true as const,
+      pointsAwarded: CORRECT_ANSWER_POINTS,
+    };
   });
 
   const responseBase: Record<string, unknown> = { correct: true, ...result };
@@ -251,6 +279,9 @@ export async function submitAnswer(req: Request, res: Response) {
         }
       : null;
     responseBase.agentClueText = challenge.mission.agentClueText ?? null;
+    responseBase.agentAppearance = challenge.mission.agentAppearance ?? null;
+    responseBase.agentAbout = challenge.mission.agentAbout ?? null;
+    responseBase.agentLocation = challenge.mission.agentLocation ?? null;
   }
   res.json(responseBase);
 }
@@ -302,6 +333,7 @@ export async function submitFragment(req: Request, res: Response) {
 
   const expected = String(fragmentChallenge.fragmentValue);
   if (digit !== expected) {
+    const WRONG_FRAGMENT_PENALTY = 20;
     await prisma.$transaction([
       prisma.teamMission.update({
         where: { teamId_missionId: { teamId, missionId: mission.id } },
@@ -309,17 +341,17 @@ export async function submitFragment(req: Request, res: Response) {
       }),
       prisma.team.update({
         where: { id: teamId },
-        data: { score: { decrement: 5 } },
+        data: { score: { decrement: WRONG_FRAGMENT_PENALTY } },
       }),
       prisma.activityLog.create({
         data: {
           teamId,
           action: "WRONG_FRAGMENT",
-          metadata: { missionOrder: mission.orderIndex, submitted: digit },
+          metadata: { missionOrder: mission.orderIndex, submitted: digit, cost: WRONG_FRAGMENT_PENALTY },
         },
       }),
     ]);
-    return res.json({ correct: false });
+    return res.json({ correct: false, penalty: WRONG_FRAGMENT_PENALTY });
   }
 
   const awarded = await awardFragmentAndAdvance(teamId, mission.id);
