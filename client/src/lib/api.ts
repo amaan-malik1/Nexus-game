@@ -36,6 +36,16 @@ function tokenFor(url: string): string | null {
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 export const api = axios.create({ baseURL: API_BASE });
 
+/**
+ * Build an absolute URL against the API origin — for use in <img src>, <a href>,
+ * window.open() and other places axios isn't involved. In dev it returns the
+ * relative path (which vite proxies); in prod it returns the full Render URL.
+ */
+export function apiUrl(path: string): string {
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return `${API_BASE}${p}`;
+}
+
 api.interceptors.request.use((cfg) => {
   const t = tokenFor(cfg.url || "");
   if (t) {

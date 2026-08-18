@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useNavigate } from "react-router-dom";
-import { api } from "../lib/api";
+import { api, apiUrl } from "../lib/api";
 import { useAdminAuth } from "../hooks/useAuth";
 import { usePolling } from "../hooks/usePolling";
 import { GlitchLabel } from "../components/GlitchText";
@@ -220,7 +220,7 @@ function TeamsTab() {
     <div>
       <div className="flex items-center gap-2 mb-4">
         <button className="nx-btn nx-btn-solid" onClick={() => setCreateOpen(true)}>+ Create Team(s)</button>
-        <a className="nx-btn" href="/api/public/qr-sheet" target="_blank" rel="noreferrer">
+        <a className="nx-btn" href={apiUrl("/api/public/qr-sheet")} target="_blank" rel="noreferrer">
           Print QR sheet
         </a>
         <button className="nx-btn nx-btn-ghost ml-auto" onClick={() => teams.refresh()}>Refresh</button>
@@ -250,13 +250,13 @@ function TeamsTab() {
                   <td className="p-3 text-center">
                     <a
                       className="inline-block"
-                      href={`/api/public/teams/${t.code}/qr`}
+                      href={apiUrl(`/api/public/teams/${t.code}/qr`)}
                       target="_blank"
                       rel="noreferrer"
                       title="Open QR full-size"
                     >
                       <img
-                        src={`/api/public/teams/${t.code}/qr`}
+                        src={apiUrl(`/api/public/teams/${t.code}/qr`)}
                         alt={`QR for ${t.name}`}
                         className="w-14 h-14 rounded border border-nx-border hover:border-nx-cyan"
                       />
@@ -283,26 +283,33 @@ function TeamsTab() {
                     <td colSpan={9} className="p-4">
                       <div className="grid md:grid-cols-3 gap-4">
                         <div>
-                          <div className="text-nx-muted text-xs mb-2">MISSION PROGRESS</div>
+                          <div className="text-nx-muted text-xs mb-2 tracking-widest">MISSION PROGRESS</div>
                           <div className="space-y-1">
-                            {t.missions?.map((m: any) => (
-                              <div key={m.orderIndex} className="flex justify-between text-xs">
-                                <span>{m.orderIndex}. {m.title}</span>
-                                <span className={cx(
-                                  m.status === "COMPLETED" && "text-nx-green",
-                                  m.status === "ACTIVE" && "text-nx-cyan",
-                                  m.status === "AWAITING_FRAGMENT" && "text-nx-yellow",
-                                  m.status === "LOCKED" && "text-nx-muted",
-                                )}>{m.status === "AWAITING_FRAGMENT" ? "AWAITING" : m.status}</span>
+                            {(t.missions && t.missions.length > 0) ? (
+                              t.missions.map((m: any) => (
+                                <div key={m.orderIndex} className="flex justify-between text-xs items-baseline gap-2">
+                                  <span className="truncate">{m.orderIndex}. {m.title}</span>
+                                  <span className={cx(
+                                    "shrink-0 tracking-widest",
+                                    m.status === "COMPLETED" && "text-nx-green",
+                                    m.status === "ACTIVE" && "text-nx-cyan",
+                                    m.status === "AWAITING_FRAGMENT" && "text-nx-yellow",
+                                    m.status === "LOCKED" && "text-nx-muted",
+                                  )}>{m.status === "AWAITING_FRAGMENT" ? "AWAITING" : m.status}</span>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="text-nx-muted text-xs italic">
+                                Team hasn't started yet. Progress rows appear once the game is running.
                               </div>
-                            ))}
+                            )}
                           </div>
                         </div>
                         <div>
-                          <div className="text-nx-muted text-xs mb-2">SCORE ADJUST</div>
-                          <div className="flex gap-2">
+                          <div className="text-nx-muted text-xs mb-2 tracking-widest">SCORE ADJUST</div>
+                          <div className="flex gap-1.5 flex-wrap">
                             {[-50, -20, -10, +10, +20, +50].map((d) => (
-                              <button key={d} className="nx-btn nx-btn-ghost !px-3 !py-1 text-xs" onClick={() => adjust(t.id, d)}>
+                              <button key={d} className="nx-btn nx-btn-ghost !px-2.5 !py-1 text-xs" onClick={() => adjust(t.id, d)}>
                                 {d > 0 ? `+${d}` : d}
                               </button>
                             ))}
@@ -348,7 +355,7 @@ function TeamsTab() {
                           </div>
                           <div className="text-nx-muted text-xs mt-4 mb-2">SCAN TO PLAY</div>
                           <img
-                            src={`/api/public/teams/${t.code}/qr`}
+                            src={apiUrl(`/api/public/teams/${t.code}/qr`)}
                             alt={`QR for ${t.name}`}
                             className="w-56 h-56 bg-white p-2 rounded border border-nx-cyan"
                           />
