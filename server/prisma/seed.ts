@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 async function main() {
   await prisma.gameConfig.upsert({
     where: { id: "singleton" },
-    update: {},
+    update: { masterKey: "72941" },
     create: { id: "singleton", masterKey: "72941" },
   });
 
