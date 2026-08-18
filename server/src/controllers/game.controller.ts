@@ -219,52 +219,59 @@ export async function submitAnswer(req: Request, res: Response) {
   const total = challenge.mission.challenges.length;
   const isFinalStep = challenge.orderInMission >= total;
 
-  const result = await prisma.$transaction(async (tx) => {
-    await tx.team.update({
-      where: { id: teamId },
-      data: { score: { increment: CORRECT_ANSWER_POINTS } },
-    });
-
-    if (!isFinalStep) {
-      await tx.teamMission.update({
+  // Batched writes — no interactive callback tx (Neon-serverless-safe)
+  let result: {
+    advancedTo: number;
+    awaitingFragment: boolean;
+    pointsAwarded: number;
+  };
+  if (!isFinalStep) {
+    await prisma.$transaction([
+      prisma.team.update({
+        where: { id: teamId },
+        data: { score: { increment: CORRECT_ANSWER_POINTS } },
+      }),
+      prisma.teamMission.update({
         where: { teamId_missionId: { teamId, missionId: challenge.missionId } },
         data: { currentStep: challenge.orderInMission + 1 },
-      });
-      await tx.activityLog.create({
+      }),
+      prisma.activityLog.create({
         data: {
           teamId,
           action: "PUZZLE_STEP_SOLVED",
           metadata: { challengeId: challenge.id, step: challenge.orderInMission, points: CORRECT_ANSWER_POINTS },
         },
-      });
-      return {
-        advancedTo: challenge.orderInMission + 1,
-        awaitingFragment: false as const,
-        pointsAwarded: CORRECT_ANSWER_POINTS,
-      };
-    }
-
-    // Final step — award puzzle-solve points, then transition to AWAITING_FRAGMENT.
-    await tx.teamMission.update({
-      where: { teamId_missionId: { teamId, missionId: challenge.missionId } },
-      data: {
-        status: "AWAITING_FRAGMENT",
-        puzzleSolvedAt: new Date(),
-      },
-    });
-    await tx.activityLog.create({
-      data: {
-        teamId,
-        action: "PUZZLE_SOLVED",
-        metadata: { missionId: challenge.missionId, orderIndex: challenge.mission.orderIndex, points: CORRECT_ANSWER_POINTS },
-      },
-    });
-    return {
-      advancedTo: challenge.orderInMission,
-      awaitingFragment: true as const,
+      }),
+    ]);
+    result = {
+      advancedTo: challenge.orderInMission + 1,
+      awaitingFragment: false,
       pointsAwarded: CORRECT_ANSWER_POINTS,
     };
-  });
+  } else {
+    await prisma.$transaction([
+      prisma.team.update({
+        where: { id: teamId },
+        data: { score: { increment: CORRECT_ANSWER_POINTS } },
+      }),
+      prisma.teamMission.update({
+        where: { teamId_missionId: { teamId, missionId: challenge.missionId } },
+        data: { status: "AWAITING_FRAGMENT", puzzleSolvedAt: new Date() },
+      }),
+      prisma.activityLog.create({
+        data: {
+          teamId,
+          action: "PUZZLE_SOLVED",
+          metadata: { missionId: challenge.missionId, orderIndex: challenge.mission.orderIndex, points: CORRECT_ANSWER_POINTS },
+        },
+      }),
+    ]);
+    result = {
+      advancedTo: challenge.orderInMission,
+      awaitingFragment: true,
+      pointsAwarded: CORRECT_ANSWER_POINTS,
+    };
+  }
 
   const responseBase: Record<string, unknown> = { correct: true, ...result };
   if (result.awaitingFragment) {
@@ -365,43 +372,45 @@ export async function requestHint(req: Request, res: Response) {
   if (typeof challengeId !== "string")
     return res.status(400).json({ error: "challengeId required" });
 
-  return prisma.$transaction(async (tx) => {
-    const team = await tx.team.findUnique({ where: { id: teamId } });
-    if (!team) return res.status(404).json({ error: "Team not found" });
-    if (team.hintsUsed >= 2)
-      return res.status(400).json({ error: "No hints left (max 2)" });
+  // Read phase
+  const [team, challenge] = await Promise.all([
+    prisma.team.findUnique({ where: { id: teamId } }),
+    prisma.challenge.findUnique({ where: { id: challengeId } }),
+  ]);
+  if (!team) return res.status(404).json({ error: "Team not found" });
+  if (team.hintsUsed >= 2) return res.status(400).json({ error: "No hints left (max 2)" });
+  if (!challenge) return res.status(404).json({ error: "Challenge not found" });
 
-    const challenge = await tx.challenge.findUnique({ where: { id: challengeId } });
-    if (!challenge) return res.status(404).json({ error: "Challenge not found" });
+  const tm = await prisma.teamMission.findUnique({
+    where: { teamId_missionId: { teamId, missionId: challenge.missionId } },
+  });
+  if (tm?.hintUsed) {
+    return res.json({ hint: challenge.hintText, alreadyUsed: true });
+  }
 
-    const tm = await tx.teamMission.findUnique({
-      where: { teamId_missionId: { teamId, missionId: challenge.missionId } },
-    });
-    if (tm?.hintUsed) {
-      return res.json({ hint: challenge.hintText, alreadyUsed: true });
-    }
-
-    await tx.teamMission.update({
+  // Batched writes (Neon-safe)
+  await prisma.$transaction([
+    prisma.teamMission.update({
       where: { teamId_missionId: { teamId, missionId: challenge.missionId } },
       data: { hintUsed: true },
-    });
-    await tx.team.update({
+    }),
+    prisma.team.update({
       where: { id: teamId },
       data: {
         hintsUsed: { increment: 1 },
         score: { decrement: challenge.hintCost },
       },
-    });
-    await tx.activityLog.create({
+    }),
+    prisma.activityLog.create({
       data: {
         teamId,
         action: "HINT_USED",
         metadata: { challengeId: challenge.id, cost: challenge.hintCost },
       },
-    });
+    }),
+  ]);
 
-    return res.json({ hint: challenge.hintText, cost: challenge.hintCost });
-  });
+  return res.json({ hint: challenge.hintText, cost: challenge.hintCost });
 }
 
 export async function listFragments(req: Request, res: Response) {
