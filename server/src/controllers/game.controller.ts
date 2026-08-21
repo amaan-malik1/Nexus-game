@@ -114,7 +114,7 @@ export async function currentMission(req: Request, res: Response) {
       briefingText: mission.briefingText,
       totalSteps: mission.challenges.length,
       agentClueText: mission.agentClueText ?? null,
-      agentAppearance: mission.agentAppearance ?? null,
+      // agentAppearance: mission.agentAppearance ?? null,
       agentAbout: mission.agentAbout ?? null,
       agentLocation: mission.agentLocation ?? null,
       agent: mission.agent
@@ -286,7 +286,7 @@ export async function submitAnswer(req: Request, res: Response) {
         }
       : null;
     responseBase.agentClueText = challenge.mission.agentClueText ?? null;
-    responseBase.agentAppearance = challenge.mission.agentAppearance ?? null;
+    // responseBase.agentAppearance = challenge.mission.agentAppearance ?? null;
     responseBase.agentAbout = challenge.mission.agentAbout ?? null;
     responseBase.agentLocation = challenge.mission.agentLocation ?? null;
   }
@@ -297,10 +297,7 @@ const fragmentSchema = z.object({
   digit: z.union([z.string(), z.number()]).transform((v) => String(v)),
 });
 
-/**
- * Phase B: player types the digit received from the assigned Tech Team agent.
- * Only accepted when the team's current mission is in AWAITING_FRAGMENT.
- */
+
 export async function submitFragment(req: Request, res: Response) {
   const teamId = teamIdOf(req);
   if (!teamId) return res.status(403).json({ error: "Player only" });

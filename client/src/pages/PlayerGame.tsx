@@ -24,41 +24,40 @@ type Agent = {
 type MissionResp =
   | { done: true; message: string }
   | {
-      done?: false;
-      mission: {
-        id: string;
-        orderIndex: number;
-        title: string;
-        type: "CIPHER" | "PROTOCOL" | "DATA_CORRUPTION" | "LOGIC_LOCK" | "INSIDER";
-        description: string;
-        briefingText: string;
-        totalSteps: number;
-        agentClueText: string | null;
-        agentAppearance: string | null;
-        agentAbout: string | null;
-        agentLocation: string | null;
-        agent: Agent | null;
-      };
-      step: number;
-      awaitingFragment: boolean;
-      challenge: {
-        id: string;
-        questionText: string;
-        questionData: any;
-        points: number;
-        hintText: string | null;
-        hintCost: number;
-        orderInMission: number;
-        requiresManualApproval: boolean;
-      };
-      teamMission: {
-        status: string;
-        hintUsed: boolean;
-        wrongAttempts: number;
-        fragmentAttempts: number;
-        puzzleSolvedAt: string | null;
-      };
+    done?: false;
+    mission: {
+      id: string;
+      orderIndex: number;
+      title: string;
+      type: "CIPHER" | "PROTOCOL" | "DATA_CORRUPTION" | "LOGIC_LOCK" | "INSIDER";
+      description: string;
+      briefingText: string;
+      totalSteps: number;
+      agentClueText: string | null;
+      agentAbout: string | null;
+      agentLocation: string | null;
+      agent: Agent | null;
     };
+    step: number;
+    awaitingFragment: boolean;
+    challenge: {
+      id: string;
+      questionText: string;
+      questionData: any;
+      points: number;
+      hintText: string | null;
+      hintCost: number;
+      orderInMission: number;
+      requiresManualApproval: boolean;
+    };
+    teamMission: {
+      status: string;
+      hintUsed: boolean;
+      wrongAttempts: number;
+      fragmentAttempts: number;
+      puzzleSolvedAt: string | null;
+    };
+  };
 
 export default function PlayerGame() {
   const [params] = useSearchParams();
@@ -167,16 +166,16 @@ function PlayerGameInner({ team, onLogout }: { team: any; onLogout: () => void }
     gameStatus === "NOT_STARTED"
       ? "waiting"
       : vaultUnlocked
-      ? "success"
-      : !missionData || (mission.data && "done" in mission.data && mission.data.done)
-      ? "vault"
-      : briefingDoneFor !== missionId
-      ? "briefing"
-      : missionData.awaitingFragment
-      ? clueSeenFor === missionId
-        ? "fragment"
-        : "clue"
-      : "challenge";
+        ? "success"
+        : !missionData || (mission.data && "done" in mission.data && mission.data.done)
+          ? "vault"
+          : briefingDoneFor !== missionId
+            ? "briefing"
+            : missionData.awaitingFragment
+              ? clueSeenFor === missionId
+                ? "fragment"
+                : "clue"
+              : "challenge";
 
   return (
     <div className="min-h-[100dvh] nx-grid-bg text-nx-text">
@@ -476,7 +475,7 @@ function ClueScreen({
 }) {
   const agent = mission.agent;
   const isNoPuzzle = challenge.requiresManualApproval;
-  const hasStructuredClue = !!(mission.agentAppearance || mission.agentAbout || mission.agentLocation);
+  const hasStructuredClue = !!(mission.agentAbout || mission.agentLocation);
   return (
     <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="pt-4">
       <div className="text-center text-nx-muted nx-mono text-xs mb-1">
@@ -506,11 +505,6 @@ function ClueScreen({
       {/* Structured appearance / about / location sections */}
       {hasStructuredClue ? (
         <div className="mt-3 space-y-2">
-          {mission.agentAppearance && (
-            <ClueSection label="APPEARANCE" tint="cyan">
-              {mission.agentAppearance}
-            </ClueSection>
-          )}
           {mission.agentAbout && (
             <ClueSection label="ABOUT" tint="magenta">
               {mission.agentAbout}
@@ -564,8 +558,8 @@ function ClueSection({
 }) {
   const color =
     tint === "magenta" ? { border: "#ff00aa", label: "text-nx-magenta" }
-    : tint === "yellow" ? { border: "#ffaa00", label: "text-nx-yellow" }
-    :                     { border: "#00f0ff", label: "text-nx-cyan" };
+      : tint === "yellow" ? { border: "#ffaa00", label: "text-nx-yellow" }
+        : { border: "#00f0ff", label: "text-nx-cyan" };
   return (
     <div className="nx-card p-4" style={{ borderColor: color.border }}>
       <div className={`${color.label} nx-mono text-xs tracking-[3px] mb-1`}>{label}</div>
