@@ -257,7 +257,7 @@ function PlayerGameInner({ team, onLogout }: { team: any; onLogout: () => void }
 
         <div className="mt-8">
           <div className="text-center text-xs text-nx-muted mb-2 nx-mono">
-            FRAGMENTS · {collectedCount}/5
+            FRAGMENTS · {collectedCount}/3
           </div>
           <FragmentDisplay fragments={fragments} />
         </div>
@@ -289,7 +289,7 @@ function PlayerGameInner({ team, onLogout }: { team: any; onLogout: () => void }
                 {reveal.value}
               </div>
               <div className="text-nx-muted text-xs mt-3 nx-mono">
-                MISSION {reveal.order} / 5
+                MISSION {reveal.order} / 3
               </div>
             </motion.div>
           </motion.div>
