@@ -5,8 +5,8 @@ const prisma = new PrismaClient();
 async function main() {
   await prisma.gameConfig.upsert({
     where: { id: "singleton" },
-    update: { masterKey: "72941" },
-    create: { id: "singleton", masterKey: "72941" },
+    update: { masterKey: "7291" },
+    create: { id: "singleton", masterKey: "7291" },
   });
 
   await prisma.challenge.deleteMany({});
@@ -141,45 +141,45 @@ async function main() {
   });
 
   // ============================================================
-  // MISSION 4 · THE DIGITAL LOCK (3-digit mastermind)
+  // MISSION 4 · FIND THE INSIDER (direct human hint)
   // ============================================================
   const m4 = await prisma.mission.create({
     data: {
       orderIndex: 4,
-      title: "THE DIGITAL LOCK",
-      type: MissionType.LOGIC_LOCK,
-      description: "3-digit lock hai. Clues use karo, elimination logic lagao.",
+      title: "FIND THE INSIDER",
+      type: MissionType.INSIDER,
+      description: "Find the person carrying the fourth fragment.",
       briefingText:
-        "> VAULT SUBSYSTEM LOCKED\n> DEDUCE THE COMBINATION\n> HAR CLUE DHYAAN SE PADHO.",
+        "> HUMAN INTEL REQUIRED\n> FIND THE INSIDER\n> VERIFY THE FINAL FRAGMENT.",
       agentAppearance:
-        "Sound se allergy hai. Kaan hamesha bhare rehte hain — chahe music baj raha ho ya nahi, coverage full.",
+        "Bilkul jaise koi bhi doosra senior — koi giveaway nahi.",
       agentAbout:
-        "Har puzzle solve karne mein satisfaction milta hai. Bolne se pehle sochte hain — 2-3 baar.",
+        "The fourth fragment is held by one person in the room.",
       agentLocation:
-        "Bheed se door. Jahaan koi nahi hai, wahin ye milenge — solo mode is default mode.",
-      agentMemberId: locksmith.id,
+        "Ask the tech team directly and verify the matching traits.",
+      agentMemberId: insider.id,
     },
   });
   await prisma.challenge.create({
     data: {
       missionId: m4.id,
       orderInMission: 1,
-      questionText: "3-digit lock crack karo. 5 clues neeche — elimination lagao.",
+      questionText: "Find the insider in person and ask for the fourth fragment.",
       questionData: {
-        clues: [
-          { code: "682", hint: "One digit correct AND correctly placed" },
-          { code: "614", hint: "One digit correct but wrongly placed" },
-          { code: "206", hint: "Two digits correct but both wrongly placed" },
-          { code: "738", hint: "Nothing correct" },
-          { code: "780", hint: "One digit correct but wrongly placed" },
+        traits: [
+          "Chai over coffee — always",
+          "Has stayed up till 3 AM debugging",
+          "Fluent in Python AND Hindi memes",
+          "Has fixed someone else's laptop for free",
+          "Owns 3+ tech-event T-shirts",
         ],
       },
-      answer: "042",
+      answer: null,
       points: 50,
-      fragmentValue: 4,
+      fragmentValue: 1,
       hintCost: 30,
       hintText:
-        "Clue 738 se shuru karo — 7, 3, 8 answer mein NAHI hain. Baaki elimination.",
+        "Ask the tech team directly. All five traits must match before accepting the fragment.",
     },
   });
 
@@ -191,6 +191,7 @@ async function main() {
       orderIndex: 5,
       title: "FIND THE INSIDER",
       type: MissionType.INSIDER,
+      isActive: false,
       description:
         "Insider ek hi hai. Har trait match hone chahiye — 4/5 nahi, PAANCH ke paanch.",
       briefingText:
@@ -249,7 +250,7 @@ async function main() {
   });
 
   console.log("✅ Seed complete.");
-  console.log("   Master key = 72941");
+  console.log("   Master key = 7291");
   console.log("   Scoring: correct answer +50 · correct fragment +50 · wrong answer -20 · hint -30");
 }
 

@@ -7,10 +7,13 @@ export function usePolling<T>(fetcher: Fetcher<T>, intervalMs: number, deps: any
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
   const alive = useRef(true);
+  const running = useRef(false);
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
 
   const tick = useCallback(async () => {
+    if (running.current) return;
+    running.current = true;
     try {
       const v = await fetcherRef.current();
       if (!alive.current) return;
@@ -20,6 +23,7 @@ export function usePolling<T>(fetcher: Fetcher<T>, intervalMs: number, deps: any
       if (!alive.current) return;
       setError(e);
     } finally {
+      running.current = false;
       if (alive.current) setLoading(false);
     }
   }, []);

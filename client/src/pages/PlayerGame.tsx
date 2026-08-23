@@ -37,7 +37,7 @@ type MissionResp =
       agentAbout: string | null;
       agentLocation: string | null;
       agent: Agent | null;
-    };
+    } | null;
     step: number;
     awaitingFragment: boolean;
     challenge: {
@@ -148,6 +148,7 @@ function PlayerGameInner({ team, onLogout }: { team: any; onLogout: () => void }
 
   const missionData = mission.data && !("done" in mission.data && mission.data.done) ? mission.data : null;
   const missionId = missionData?.mission?.id ?? null;
+  const hasMission = Boolean(missionData?.mission);
 
   // Reset briefing/clue local state when mission changes
   useEffect(() => {
@@ -167,11 +168,13 @@ function PlayerGameInner({ team, onLogout }: { team: any; onLogout: () => void }
       ? "waiting"
       : vaultUnlocked
         ? "success"
-        : !missionData || (mission.data && "done" in mission.data && mission.data.done)
+        : (mission.data && "done" in mission.data && mission.data.done)
           ? "vault"
+          : !hasMission
+            ? "waiting"
           : briefingDoneFor !== missionId
             ? "briefing"
-            : missionData.awaitingFragment
+            : missionData?.awaitingFragment
               ? clueSeenFor === missionId
                 ? "fragment"
                 : "clue"
@@ -205,14 +208,14 @@ function PlayerGameInner({ team, onLogout }: { team: any; onLogout: () => void }
 
       <main className="max-w-md mx-auto px-4 py-6">
         {screen === "waiting" && <Waiting teamName={team?.name} />}
-        {screen === "briefing" && missionData && (
+        {screen === "briefing" && missionData?.mission && (
           <BriefingScreen
             key={`b-${missionId}`}
             mission={missionData.mission}
             onDone={() => setBriefingDoneFor(missionId)}
           />
         )}
-        {screen === "challenge" && missionData && (
+        {screen === "challenge" && missionData?.mission && (
           <ChallengeScreen
             key={`c-${missionData.challenge.id}-${missionData.step}`}
             data={missionData}
@@ -225,7 +228,7 @@ function PlayerGameInner({ team, onLogout }: { team: any; onLogout: () => void }
             }}
           />
         )}
-        {screen === "clue" && missionData && (
+        {screen === "clue" && missionData?.mission && (
           <ClueScreen
             key={`k-${missionId}`}
             mission={missionData.mission}
@@ -234,7 +237,7 @@ function PlayerGameInner({ team, onLogout }: { team: any; onLogout: () => void }
             onProceed={() => setClueSeenFor(missionId)}
           />
         )}
-        {screen === "fragment" && missionData && (
+        {screen === "fragment" && missionData?.mission && (
           <FragmentEntryScreen
             key={`f-${missionId}`}
             mission={missionData.mission}
@@ -257,7 +260,7 @@ function PlayerGameInner({ team, onLogout }: { team: any; onLogout: () => void }
 
         <div className="mt-8">
           <div className="text-center text-xs text-nx-muted mb-2 nx-mono">
-            FRAGMENTS · {collectedCount}/3
+            FRAGMENTS · {collectedCount}/4
           </div>
           <FragmentDisplay fragments={fragments} />
         </div>
@@ -305,7 +308,7 @@ function MissionProgress({
 }: { currentOrder: number; completedCount: number }) {
   return (
     <div className="max-w-md mx-auto px-4 pb-3 flex items-center gap-2">
-      {[1, 2, 3, 4, 5].map((i) => {
+      {[1, 2, 3, 4].map((i) => {
         const done = i <= completedCount;
         const active = i === currentOrder && !done;
         return (
@@ -355,7 +358,7 @@ function BriefingScreen({
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="pt-8">
       <div className="text-center text-nx-muted nx-mono text-xs mb-2">
-        MISSION {mission.orderIndex} OF 5
+        MISSION {mission.orderIndex} OF 4
       </div>
       <GlitchLabel className="block text-center text-2xl">{mission.title}</GlitchLabel>
       <div className="nx-card nx-card-cyan p-4 mt-6 nx-mono text-sm text-nx-cyan">
@@ -373,12 +376,15 @@ function ChallengeScreen({
   hintsUsed: number;
   onSolved: () => void;
 }) {
+  const mission = data.mission;
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [shake, setShake] = useState(0);
   const [showHint, setShowHint] = useState<string | null>(data.challenge.hintText);
 
   useEffect(() => setShowHint(data.challenge.hintText), [data.challenge.id, data.challenge.hintText]);
+
+  if (!mission) return null;
 
   const submit = async () => {
     if (!answer.trim() && !data.challenge.requiresManualApproval) return;
@@ -415,13 +421,13 @@ function ChallengeScreen({
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="pt-2">
       <div className="text-center text-nx-muted nx-mono text-xs">
-        MISSION {data.mission.orderIndex} / 5 · STEP {data.step} / {data.mission.totalSteps + 1}
+        MISSION {mission.orderIndex} / 4 · STEP {data.step} / {mission.totalSteps + 1}
       </div>
-      <GlitchLabel className="block text-center text-xl mt-1">{data.mission.title}</GlitchLabel>
+      <GlitchLabel className="block text-center text-xl mt-1">{mission.title}</GlitchLabel>
 
       <div className="nx-card p-4 mt-4">
         <div className="text-nx-text nx-mono text-sm mb-3">{data.challenge.questionText}</div>
-        <ChallengeBody type={data.mission.type} questionData={data.challenge.questionData} />
+        <ChallengeBody type={mission.type} questionData={data.challenge.questionData} />
       </div>
 
       {data.challenge.requiresManualApproval ? (
@@ -435,7 +441,7 @@ function ChallengeScreen({
         <>
           <motion.div key={shake} animate={{ x: shake ? [-8, 8, -6, 6, -3, 3, 0] : 0 }} transition={{ duration: 0.4 }} className="mt-4">
             <AnswerInput
-              type={data.mission.type}
+              type={mission.type}
               value={answer}
               onChange={setAnswer}
               onSubmit={submit}
@@ -787,13 +793,13 @@ function VaultScreen({
   vaultAttempts: number;
   onUnlock: () => void;
 }) {
-  const [digits, setDigits] = useState<string[]>(["", "", "", "", ""]);
+  const [digits, setDigits] = useState<string[]>(["", "", "", ""]);
   const [busy, setBusy] = useState(false);
   const [shake, setShake] = useState(0);
 
   const submit = async () => {
     const key = digits.join("");
-    if (key.length !== 5) return;
+    if (key.length !== 4) return;
     setBusy(true);
     try {
       const { data } = await api.post("/api/game/vault", { key });
@@ -818,7 +824,7 @@ function VaultScreen({
       <div className="text-center text-nx-muted nx-mono text-xs">FINAL SEQUENCE</div>
       <GlitchLabel className="block text-center text-2xl mt-1">VAULT ACCESS</GlitchLabel>
       <div className="text-center nx-mono text-xs text-nx-muted mt-4">
-        Enter the 5-digit master key from your collected fragments.
+        Enter the 4-digit master key from your collected fragments.
       </div>
       <div className="mt-6">
         <FragmentDisplay fragments={fragments} />
@@ -834,7 +840,7 @@ function VaultScreen({
               const v = e.target.value.replace(/\D/g, "").slice(0, 1);
               const next = digits.slice(); next[i] = v;
               setDigits(next);
-              if (v && i < 4) (document.querySelectorAll<HTMLInputElement>("input[data-vault]")[i + 1])?.focus();
+              if (v && i < 3) (document.querySelectorAll<HTMLInputElement>("input[data-vault]")[i + 1])?.focus();
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter") submit();
@@ -848,7 +854,7 @@ function VaultScreen({
       <div className="text-center nx-mono text-xs mt-3 text-nx-muted">
         Attempts left: <span className="text-nx-yellow">{attemptsLeft}</span> · Wrong = −20 pts
       </div>
-      <button className="nx-btn nx-btn-solid w-full mt-6" onClick={submit} disabled={busy || digits.join("").length !== 5 || attemptsLeft === 0}>
+      <button className="nx-btn nx-btn-solid w-full mt-6" onClick={submit} disabled={busy || digits.join("").length !== 4 || attemptsLeft === 0}>
         {busy ? "…" : "CRACK THE VAULT"}
       </button>
     </motion.div>

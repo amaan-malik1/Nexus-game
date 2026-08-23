@@ -1,6 +1,6 @@
 # NEXUS — Operation Steal The Code
 
-Full-stack heist game for a college tech-club induction event. ~150 freshers, 15 teams, 5 missions, 30 minutes.
+Full-stack heist game for a college tech-club induction event. ~150 freshers, 15 teams, 3 missions, 30 minutes.
 
 - **Backend:** Express 5 + TypeScript + Prisma + PostgreSQL, JWT auth
 - **Frontend:** React 18 + Vite + TS, Tailwind v4, shadcn/ui, Framer Motion (player/admin) + GSAP (projector)
@@ -46,6 +46,6 @@ npm run dev            # http://localhost:5173
 
 ## Master key (default seed)
 
-`72941` — computed from fragment digits in mission order: 7, 2, 9, 4, 1. Admin can edit fragment values per challenge; the master key auto-recomputes.
+`7291` — computed from fragment digits in mission order: 7, 2, 9, 1. The fourth fragment is obtained directly from the insider. Admin can edit fragment values per challenge; the master key auto-recomputes.
 
 

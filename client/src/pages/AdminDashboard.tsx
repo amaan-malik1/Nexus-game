@@ -262,8 +262,8 @@ function TeamsTab() {
                       />
                     </a>
                   </td>
-                  <td className="p-3 text-center">{t.currentMission > 5 ? "VAULT" : t.currentMission}</td>
-                  <td className="p-3 text-center">{t.fragmentsCollected}/5</td>
+                  <td className="p-3 text-center">{t.currentMission > 4 ? "VAULT" : t.currentMission}</td>
+                  <td className="p-3 text-center">{t.fragmentsCollected}/4</td>
                   <td className="p-3 text-center text-nx-green">{t.score}</td>
                   <td className="p-3 text-center">{t.hintsUsed}/2</td>
                   <td className="p-3 text-center">
@@ -638,7 +638,7 @@ function LeaderboardTab() {
               <td className="p-3">{i + 1}</td>
               <td className="p-3 nx-display text-nx-cyan tracking-widest">{t.name}</td>
               <td className="p-3 text-center text-nx-green">{t.score}</td>
-              <td className="p-3 text-center">{t.currentMission > 5 ? "VAULT" : t.currentMission}</td>
+              <td className="p-3 text-center">{t.currentMission > 4 ? "VAULT" : t.currentMission}</td>
               <td className="p-3 text-center">{t.vaultUnlocked ? <span className="text-nx-magenta">BREACHED</span> : "—"}</td>
             </tr>
           ))}

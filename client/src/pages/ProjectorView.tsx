@@ -85,7 +85,7 @@ function PreGame() {
           SECURITY BREACH
         </div>
         <div className="text-nx-muted nx-mono text-2xl mt-6 tracking-widest">
-          05 FRAGMENTS MISSING
+          03 FRAGMENTS MISSING
         </div>
         <div className="text-nx-cyan nx-mono text-sm mt-16 tracking-[6px] opacity-70">
           AWAITING OPERATIVES
@@ -150,7 +150,7 @@ function LeaderboardMode({ data }: { data: ProjectorState }) {
               {t.name}
             </div>
             <div className="text-nx-muted nx-mono text-sm w-32 text-right">
-              M{t.currentMission > 5 ? "5+" : t.currentMission}/5
+              M{t.currentMission > 4 ? "4+" : t.currentMission}/4
             </div>
             <div className="nx-display text-3xl md:text-5xl text-nx-green tabular-nums w-32 text-right">
               {t.score}
