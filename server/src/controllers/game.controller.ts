@@ -120,6 +120,7 @@ export async function currentMission(req: Request, res: Response) {
       briefingText: mission.briefingText,
       totalSteps: mission.challenges.length,
       agentClueText: mission.agentClueText ?? null,
+      agentHintText: mission.agentHintText ?? mission.agentClueText ?? mission.agentAbout ?? mission.agentAppearance ?? mission.agentLocation ?? null,
       agentAppearance: mission.agentAppearance ?? null,
       agentAbout: mission.agentAbout ?? null,
       agentLocation: mission.agentLocation ?? null,
@@ -149,6 +150,7 @@ export async function currentMission(req: Request, res: Response) {
     teamMission: {
       status: tm?.status ?? "LOCKED",
       hintUsed: tm?.hintUsed ?? false,
+      agentHintUsed: tm?.agentHintUsed ?? false,
       wrongAttempts: tm?.wrongAttempts ?? 0,
       fragmentAttempts: tm?.fragmentAttempts ?? 0,
       puzzleSolvedAt: tm?.puzzleSolvedAt ?? null,
@@ -414,6 +416,42 @@ export async function requestHint(req: Request, res: Response) {
   ]);
 
   return res.json({ hint: challenge.hintText, cost: challenge.hintCost });
+}
+
+export async function requestAgentHint(req: Request, res: Response) {
+  const teamId = teamIdOf(req);
+  if (!teamId) return res.status(403).json({ error: "Player only" });
+  const { missionId } = req.body ?? {};
+  if (typeof missionId !== "string")
+    return res.status(400).json({ error: "missionId required" });
+
+  const [team, mission, tm] = await Promise.all([
+    prisma.team.findUnique({ where: { id: teamId } }),
+    prisma.mission.findUnique({ where: { id: missionId } }),
+    prisma.teamMission.findUnique({ where: { teamId_missionId: { teamId, missionId } } }),
+  ]);
+  if (!team) return res.status(404).json({ error: "Team not found" });
+  if (!mission) return res.status(404).json({ error: "Mission not found" });
+  if (!tm || tm.status !== "AWAITING_FRAGMENT")
+    return res.status(400).json({ error: "Agent hint is available before entering the fragment." });
+
+  const hint = mission.agentHintText ?? mission.agentClueText ?? mission.agentAbout ?? mission.agentAppearance ?? mission.agentLocation;
+  if (!hint) return res.status(400).json({ error: "Agent hint unavailable" });
+  if (tm.agentHintUsed) return res.json({ hint, alreadyUsed: true, cost: 100 });
+  if (team.score < 100) return res.status(400).json({ error: "Not enough points for this hint" });
+
+  await prisma.$transaction([
+    prisma.teamMission.update({
+      where: { teamId_missionId: { teamId, missionId } },
+      data: { agentHintUsed: true },
+    }),
+    prisma.team.update({ where: { id: teamId }, data: { score: { decrement: 100 } } }),
+    prisma.activityLog.create({
+      data: { teamId, action: "AGENT_HINT_USED", metadata: { missionId, cost: 100 } },
+    }),
+  ]);
+
+  return res.json({ hint, cost: 100 });
 }
 
 export async function listFragments(req: Request, res: Response) {

@@ -72,6 +72,7 @@ model Mission {
   briefingText     String
   isActive         Boolean     @default(true)
   agentClueText    String?
+  agentHintText    String?
   agentAppearance  String?
   agentAbout       String?
   agentLocation    String?
@@ -112,6 +113,7 @@ model TeamMission {
   puzzleSolvedAt DateTime?
   completedAt    DateTime?
   hintUsed       Boolean           @default(false)
+  agentHintUsed  Boolean           @default(false)
   currentStep    Int               @default(1)
   wrongAttempts  Int               @default(0)
   fragmentAttempts Int             @default(0)

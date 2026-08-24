@@ -35,6 +35,7 @@ type MissionResp =
       briefingText: string;
       totalSteps: number;
       agentClueText: string | null;
+      agentHintText: string | null;
       agentAppearance: string | null;
       agentAbout: string | null;
       agentLocation: string | null;
@@ -55,6 +56,7 @@ type MissionResp =
     teamMission: {
       status: string;
       hintUsed: boolean;
+      agentHintUsed: boolean;
       wrongAttempts: number;
       fragmentAttempts: number;
       puzzleSolvedAt: string | null;
@@ -240,6 +242,8 @@ function PlayerGameInner({ team, onLogout }: { team: any; onLogout: () => void }
             mission={missionData.mission}
             challenge={missionData.challenge}
             missionType={missionData.mission.type}
+            agentHintText={missionData.mission.agentHintText}
+            agentHintUsed={missionData.teamMission.agentHintUsed}
             onProceed={() => setClueSeenFor(missionId)}
           />
         )}
@@ -482,16 +486,34 @@ function ChallengeScreen({
 
 // ---------- Clue (post-puzzle "find the agent") ----------
 function ClueScreen({
-  mission, challenge, missionType, onProceed,
+  mission, challenge, missionType, agentHintText, agentHintUsed, onProceed,
 }: {
   mission: NonNullable<Extract<MissionResp, { done?: false }>["mission"]>;
   challenge: Extract<MissionResp, { done?: false }>["challenge"];
   missionType: string;
+  agentHintText: string | null;
+  agentHintUsed: boolean;
   onProceed: () => void;
 }) {
+  const [showHint, setShowHint] = useState(agentHintUsed ? agentHintText : null);
+  const [busy, setBusy] = useState(false);
   const agent = mission.agent;
   const isNoPuzzle = challenge.requiresManualApproval;
   const hasStructuredClue = !!(mission.agentAppearance || mission.agentAbout || mission.agentLocation);
+
+  const requestAgentHint = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.post("/api/game/agent-hint", { missionId: mission.id });
+      setShowHint(data.hint);
+      playGameSound("wrong");
+      toast(`Agent hint unlocked (-${data.cost ?? 100} pts)`, "warn");
+    } catch (e: any) {
+      toast(e.response?.data?.error || "Agent hint unavailable", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="pt-4">
       <div className="text-center text-nx-muted nx-mono text-xs mb-1">
@@ -562,6 +584,18 @@ function ClueScreen({
           Find this tech team member and ask them directly for the final fragment digit.
         </div>
       </div>
+
+      {agentHintText && !showHint && (
+        <button className="nx-btn nx-btn-ghost w-full mt-3" onClick={requestAgentHint} disabled={busy}>
+          {busy ? "Unlocking…" : "Agent hint · -100 pts"}
+        </button>
+      )}
+      {showHint && (
+        <div className="nx-card mt-3 p-3" style={{ borderColor: "#ffaa00" }}>
+          <div className="text-nx-yellow nx-mono text-xs mb-1">AGENT HINT · 100 POINTS</div>
+          <div className="nx-mono text-sm whitespace-pre-line">{showHint}</div>
+        </div>
+      )}
 
       <button className="nx-btn nx-btn-solid w-full mt-4" onClick={onProceed}>
         I found them

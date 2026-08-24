@@ -33,6 +33,7 @@ async function main() {
       description: "Decode the encrypted greeting, then hunt the Crypto Agent.",
       briefingText:
         "> INCOMING TRANSMISSION\n> ENCRYPTION: CAESAR SHIFT +3\n> DECODE TO PROCEED.",
+      agentHintText: "Look for the person who always has a steaming cup in hand and speaks in patterns.",
       agentAppearance:
         "Kabhi khaali haath nahi milenge. Ek cheez hamesha grip mein rehti hai — steam nikalti hui.",
       agentAbout:
@@ -70,6 +71,7 @@ async function main() {
       description: "Symbols ko decode karo. Legend dhyaan se padho.",
       briefingText:
         "> LEGACY PROTOCOL DETECTED\n> SYMBOLS MAP TO LETTERS\n> DECODE THE KEYWORD.",
+      agentHintText: "Find the person near the audio setup who follows a precise process for everything.",
       agentAppearance:
         "Fingers rest mein bhi type karte hain — koi imaginary keyboard baja rahe hote hain. Notice karke pehchan jaoge.",
       agentAbout:
@@ -108,6 +110,7 @@ async function main() {
       description: "Enrollment list leak ho gayi. Ek ID mein ek character ne bhes badla hai.",
       briefingText:
         "> ENROLLMENT LEDGER LEAKED\n> ONE ENTRY IS A FORGERY\n> IDENTIFY THE LINE NUMBER.",
+      agentHintText: "Look for the person with a notebook who keeps track of everyone and everything.",
       agentAppearance:
         "Chalte-firte ledger. Kuch bhi poocho — likhne ki tayaari mein rehte hain. Khaali haath rare hai.",
       agentAbout:
@@ -151,6 +154,7 @@ async function main() {
       description: "Find the person carrying the fourth fragment.",
       briefingText:
         "> HUMAN INTEL REQUIRED\n> FIND THE INSIDER\n> VERIFY THE FINAL FRAGMENT.",
+      agentHintText: "Ask the tech team for the person who matches all five traits, not just four.",
       agentAppearance:
         "Bilkul jaise koi bhi doosra senior — koi giveaway nahi.",
       agentAbout:
@@ -196,6 +200,7 @@ async function main() {
         "Insider ek hi hai. Har trait match hone chahiye — 4/5 nahi, PAANCH ke paanch.",
       briefingText:
         "> INSIDER IDENTIFIED IN THE CROWD\n> ALL FIVE TRAITS MUST MATCH\n> GO. FIND. VERIFY.",
+      agentHintText: "Search around CENTER STAGE for someone in blue jeans carrying a small notebook.",
       agentClueText:
         "Insider chhupa hua hai crowd mein. Alag se identify nahi hoga — sab traits ka combo maango.\n" +
         "Woh CENTER STAGE ke aas-paas ghoomta rahega, ek printed 'STAFF' badge nahi pehnega — deliberately.\n" +

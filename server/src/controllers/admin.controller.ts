@@ -320,6 +320,7 @@ const missionSchema = z.object({
   briefingText: z.string().default(""),
   isActive: z.boolean().optional(),
   agentClueText: z.string().nullable().optional(),
+  agentHintText: z.string().nullable().optional(),
   agentAppearance: z.string().nullable().optional(),
   agentAbout: z.string().nullable().optional(),
   agentLocation: z.string().nullable().optional(),

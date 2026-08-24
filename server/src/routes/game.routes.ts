@@ -7,6 +7,7 @@ import {
   submitAnswer,
   submitFragment,
   requestHint,
+  requestAgentHint,
   listFragments,
   submitVault,
   publicLeaderboard,
@@ -22,6 +23,7 @@ r.get("/mission", requirePlayer, currentMission);
 r.post("/submit", requirePlayer, submitAnswer);
 r.post("/fragment", requirePlayer, submitFragment);
 r.post("/hint", requirePlayer, requestHint);
+r.post("/agent-hint", requirePlayer, requestAgentHint);
 r.get("/fragments", requirePlayer, listFragments);
 r.post("/vault", requirePlayer, submitVault);
 

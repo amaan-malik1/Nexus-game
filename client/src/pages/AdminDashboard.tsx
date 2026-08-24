@@ -401,7 +401,7 @@ function MissionsTab() {
     await api.put(`/api/admin/missions/${m.id}`, { isActive: !m.isActive });
     missions.refresh();
   }
-  async function saveAgent(m: any, patch: { agentMemberId?: string | null; agentClueText?: string }) {
+  async function saveAgent(m: any, patch: { agentMemberId?: string | null; agentClueText?: string; agentHintText?: string }) {
     try {
       await api.put(`/api/admin/missions/${m.id}`, patch);
       toast("Mission updated", "success");
@@ -452,13 +452,15 @@ function MissionCard({
   mission: any;
   techTeam: any[];
   onToggleActive: () => void;
-  onSaveAgent: (patch: { agentMemberId?: string | null; agentClueText?: string }) => void;
+  onSaveAgent: (patch: { agentMemberId?: string | null; agentClueText?: string; agentHintText?: string }) => void;
   onEditChallenge: (c: any) => void;
   onAddChallenge: () => void;
   onDeleteChallenge: (id: string) => void;
 }) {
   const [clue, setClue] = useState(m.agentClueText ?? "");
+  const [agentHint, setAgentHint] = useState(m.agentHintText ?? "");
   useEffect(() => { setClue(m.agentClueText ?? ""); }, [m.agentClueText]);
+  useEffect(() => { setAgentHint(m.agentHintText ?? ""); }, [m.agentHintText]);
 
   const fragmentDigit = (() => {
     const c = [...(m.challenges ?? [])].reverse().find((c: any) => c.fragmentValue !== null && c.fragmentValue !== undefined);
@@ -507,9 +509,25 @@ function MissionCard({
               placeholder="e.g. Find the CRYPTO AGENT near the labs…"
             />
             <button
-              className="nx-btn nx-btn-ghost !px-3"
+              className="nx-btn nx-btn-ghost px-3!"
               disabled={clue === (m.agentClueText ?? "")}
               onClick={() => onSaveAgent({ agentClueText: clue })}
+            >Save</button>
+          </div>
+        </div>
+        <div>
+          <div className="text-nx-muted text-xs mb-1">STEP 2 HINT (100 POINTS)</div>
+          <div className="flex gap-2">
+            <input
+              className="nx-input flex-1"
+              value={agentHint}
+              onChange={(e) => setAgentHint(e.target.value)}
+              placeholder="e.g. Look for the person carrying a blue notebook…"
+            />
+            <button
+              className="nx-btn nx-btn-ghost !px-3"
+              disabled={agentHint === (m.agentHintText ?? "")}
+              onClick={() => onSaveAgent({ agentHintText: agentHint })}
             >Save</button>
           </div>
         </div>
