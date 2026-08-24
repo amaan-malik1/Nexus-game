@@ -34,6 +34,7 @@ type MissionResp =
       briefingText: string;
       totalSteps: number;
       agentClueText: string | null;
+      agentAppearance: string | null;
       agentAbout: string | null;
       agentLocation: string | null;
       agent: Agent | null;
@@ -135,6 +136,7 @@ function PlayerGameInner({ team, onLogout }: { team: any; onLogout: () => void }
   );
 
   const [reveal, setReveal] = useState<{ value: number; order: number } | null>(null);
+  const [vaultReady, setVaultReady] = useState(false);
   // Local sub-phase inside AWAITING_FRAGMENT: "clue" first, then "entry".
   const [clueSeenFor, setClueSeenFor] = useState<string | null>(null);
   // Local briefing overlay lifecycle
@@ -144,6 +146,7 @@ function PlayerGameInner({ team, onLogout }: { team: any; onLogout: () => void }
   const remaining = status.data?.remaining ?? 0;
   const fragments = teamState.data?.fragments ?? [];
   const collectedCount = fragments.length;
+  const allFragmentsCollected = collectedCount >= 4;
   const vaultUnlocked = teamState.data?.vaultUnlocked ?? false;
 
   const missionData = mission.data && !("done" in mission.data && mission.data.done) ? mission.data : null;
@@ -164,10 +167,12 @@ function PlayerGameInner({ team, onLogout }: { team: any; onLogout: () => void }
     | "fragment"
     | "vault"
     | "success" =
-    gameStatus === "NOT_STARTED"
+    gameStatus === "NOT_STARTED" && !vaultReady && !allFragmentsCollected
       ? "waiting"
-      : vaultUnlocked
+        : vaultUnlocked
         ? "success"
+          : vaultReady || allFragmentsCollected
+            ? "vault"
         : (mission.data && "done" in mission.data && mission.data.done)
           ? "vault"
           : !hasMission
@@ -243,7 +248,8 @@ function PlayerGameInner({ team, onLogout }: { team: any; onLogout: () => void }
             mission={missionData.mission}
             onCorrect={(value, order) => {
               setReveal({ value, order });
-              setTimeout(() => setReveal(null), 2800);
+              if (order === 4) setVaultReady(true);
+              setTimeout(() => setReveal(null), 900);
               teamState.refresh();
               mission.refresh();
             }}
@@ -481,11 +487,11 @@ function ClueScreen({
 }) {
   const agent = mission.agent;
   const isNoPuzzle = challenge.requiresManualApproval;
-  const hasStructuredClue = !!(mission.agentAbout || mission.agentLocation);
+  const hasStructuredClue = !!(mission.agentAppearance || mission.agentAbout || mission.agentLocation);
   return (
     <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="pt-4">
       <div className="text-center text-nx-muted nx-mono text-xs mb-1">
-        MISSION {mission.orderIndex} / 5 · {isNoPuzzle ? "STEP 1 / 1" : "STEP 2 / 2"}
+        MISSION {mission.orderIndex} / 4 · {isNoPuzzle ? "DIRECT INTEL" : "STEP 2 / 2"}
       </div>
       {!isNoPuzzle && (
         <div className="text-center text-nx-green nx-mono text-xs tracking-widest mb-2">✓ PUZZLE DECODED</div>
@@ -511,6 +517,11 @@ function ClueScreen({
       {/* Structured appearance / about / location sections */}
       {hasStructuredClue ? (
         <div className="mt-3 space-y-2">
+          {mission.agentAppearance && (
+            <ClueSection label="APPEARANCE" tint="cyan">
+              {mission.agentAppearance}
+            </ClueSection>
+          )}
           {mission.agentAbout && (
             <ClueSection label="ABOUT" tint="magenta">
               {mission.agentAbout}
@@ -544,7 +555,7 @@ function ClueScreen({
 
       <div className="mt-4 nx-card p-3 text-center">
         <div className="text-nx-yellow nx-mono text-xs">
-          Find the agent, complete their task, and they will hand you a single digit — your fragment.
+          Find this tech team member and ask them directly for the final fragment digit.
         </div>
       </div>
 
@@ -606,7 +617,7 @@ function FragmentEntryScreen({
 
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="pt-4">
-      <div className="text-center text-nx-muted nx-mono text-xs">MISSION {mission.orderIndex} / 5</div>
+      <div className="text-center text-nx-muted nx-mono text-xs">MISSION {mission.orderIndex} / 4</div>
       <GlitchLabel className="block text-center text-xl mt-1">ENTER FRAGMENT</GlitchLabel>
       <div className="text-center nx-mono text-xs text-nx-muted mt-4">
         Type the digit given to you by

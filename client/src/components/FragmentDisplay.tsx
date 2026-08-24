@@ -5,7 +5,7 @@ type F = { value: number; missionOrder: number };
 
 export function FragmentDisplay({
   fragments,
-  totalSlots = 5,
+  totalSlots = 4,
   className,
 }: {
   fragments: F[];

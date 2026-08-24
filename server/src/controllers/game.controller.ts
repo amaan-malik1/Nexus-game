@@ -88,8 +88,14 @@ export async function currentMission(req: Request, res: Response) {
   });
 
   const step = tm?.currentStep ?? 1;
-  const challenge = mission.challenges.find((c) => c.orderInMission === step) ??
-    mission.challenges[0];
+  let challenge = mission.challenges.find((c) => c.orderInMission === step);
+  if (!challenge && tm && step > mission.challenges.length && tm.status === "ACTIVE") {
+    tm = await prisma.teamMission.update({
+      where: { teamId_missionId: { teamId, missionId: mission.id } },
+      data: { status: "AWAITING_FRAGMENT", puzzleSolvedAt: new Date() },
+    });
+    challenge = mission.challenges[mission.challenges.length - 1];
+  }
   if (!challenge) return res.json({ done: false, mission: null });
 
   // Missions with no phone puzzle (INSIDER, etc.) skip the puzzle-submit
@@ -114,7 +120,7 @@ export async function currentMission(req: Request, res: Response) {
       briefingText: mission.briefingText,
       totalSteps: mission.challenges.length,
       agentClueText: mission.agentClueText ?? null,
-      // agentAppearance: mission.agentAppearance ?? null,
+      agentAppearance: mission.agentAppearance ?? null,
       agentAbout: mission.agentAbout ?? null,
       agentLocation: mission.agentLocation ?? null,
       agent: mission.agent
