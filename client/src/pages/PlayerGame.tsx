@@ -9,6 +9,7 @@ import { FragmentDisplay } from "../components/FragmentDisplay";
 import { Scanlines } from "../components/Scanlines";
 import { toast } from "../components/Toast";
 import { formatTime, cx } from "../lib/format";
+import { playGameSound } from "../lib/audio";
 
 type GameStatus = "NOT_STARTED" | "RUNNING" | "PAUSED" | "FINISHED";
 
@@ -249,7 +250,7 @@ function PlayerGameInner({ team, onLogout }: { team: any; onLogout: () => void }
             onCorrect={(value, order) => {
               setReveal({ value, order });
               if (order === 4) setVaultReady(true);
-              setTimeout(() => setReveal(null), 900);
+              setTimeout(() => setReveal(null), 450);
               teamState.refresh();
               mission.refresh();
             }}
@@ -358,7 +359,7 @@ function BriefingScreen({
   onDone: () => void;
 }) {
   useEffect(() => {
-    const t = setTimeout(onDone, 2400);
+    const t = setTimeout(onDone, 700);
     return () => clearTimeout(t);
   }, [onDone]);
   return (
@@ -401,10 +402,12 @@ function ChallengeScreen({
       });
       if (r.correct) {
         setAnswer("");
+        playGameSound("correct");
         toast(`+${r.pointsAwarded ?? 50} points`, "success");
         onSolved();
       } else {
         setShake((n) => n + 1);
+        playGameSound("wrong");
         toast(`Wrong answer (-${r.penalty ?? 20} pts)`, "error");
       }
     } catch (e: any) {
@@ -418,6 +421,7 @@ function ChallengeScreen({
     try {
       const { data: r } = await api.post("/api/game/hint", { challengeId: data.challenge.id });
       setShowHint(r.hint);
+      playGameSound("wrong");
       toast(`Hint unlocked (-${r.cost ?? 0} pts)`, "warn");
     } catch (e: any) {
       toast(e.response?.data?.error || "Hint unavailable", "error");
@@ -602,10 +606,12 @@ function FragmentEntryScreen({
     try {
       const { data } = await api.post("/api/game/fragment", { digit });
       if (data.correct) {
+        playGameSound("correct");
         onCorrect(data.fragmentValue, data.missionOrder);
         setDigit("");
       } else {
         setShake((n) => n + 1);
+        playGameSound("wrong");
         toast(`Wrong digit (-${data.penalty ?? 20} pts)`, "error");
       }
     } catch (e: any) {
@@ -815,10 +821,12 @@ function VaultScreen({
     try {
       const { data } = await api.post("/api/game/vault", { key });
       if (data.success) {
+        playGameSound("correct");
         toast("VAULT UNLOCKED", "success");
         onUnlock();
       } else {
         setShake((n) => n + 1);
+        playGameSound("wrong");
         toast("ACCESS DENIED", "error");
       }
     } catch (e: any) {
